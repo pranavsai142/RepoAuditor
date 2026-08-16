@@ -1,0 +1,62 @@
+[
+  {
+    "id": "purpose",
+    "question": "What does this repository appear to be for, based only on the HEAD tree, README, and commit record in the pack?"
+  },
+  {
+    "id": "category",
+    "question": "Classify it as one of: service, library, script, infra, docs, experiment, husk, unknown. Say why in one sentence."
+  },
+  {
+    "id": "head_substance",
+    "question": "At HEAD, is there product code that could run or be imported, or only docs, comments, config, and placeholders?"
+  },
+  {
+    "id": "commit_substance",
+    "question": "Do recent commits change behavior, or are they comments, markdown, whitespace, lockfile, or empty?"
+  },
+  {
+    "id": "readme_match",
+    "question": "Does the README describe what is actually in the tree, or does it over-claim?"
+  },
+  {
+    "id": "wip_theater",
+    "question": "Is the record perpetual WIP without a coherent increment?"
+  },
+  {
+    "id": "bot_vs_human",
+    "question": "Is meaningful change coming from humans or from bots?"
+  },
+  {
+    "id": "padding",
+    "question": "Are there ritual, duplicate-content, or comment-only commits that look like attendance?"
+  },
+  {
+    "id": "occupancy",
+    "question": "What is the occupancy story: steady, fade, hot-potato, burst-then-graveyard, or one person?"
+  },
+  {
+    "id": "ai_assistance",
+    "question": "Which coding assistants (Cursor, Copilot, Claude, Codex, Devin, Aider, …) appear in trailers, authors, or subjects? Is this human-directed edits or autonomous commit streams?"
+  },
+  {
+    "id": "demo_vs_durable",
+    "question": "Does this look like a scaffolded demo or rewrite pitch sitting on top of (or instead of) a durable system — README claims replace/modernize/platform, tree is Vite/CRA defaults?"
+  },
+  {
+    "id": "run_the_business",
+    "question": "Is this run-the-business shared services (logging, security, on-call, IaC, CI) that other teams depend on, or a one-off demo?"
+  },
+  {
+    "id": "requirements_theater",
+    "question": "Is the only artifact a requirements/spec markdown that never becomes working software?"
+  },
+  {
+    "id": "greenfield_vs_buy",
+    "question": "Are they greenfielding a bespoke replacement for something that is normally bought as a suite? Cite README claims vs the tree."
+  },
+  {
+    "id": "next_inspect",
+    "question": "Which up to 3 commit hashes from this pack should a human open first, and why?"
+  }
+]

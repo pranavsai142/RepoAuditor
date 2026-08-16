@@ -1,0 +1,16 @@
+{
+  "local_parts": [
+    "dependabot",
+    "renovate",
+    "github-actions",
+    "greenkeeper",
+    "codecov",
+    "snyk",
+    "imgbot",
+    "allcontributors"
+  ],
+  "domains": [
+    "dependabot.com",
+    "renovatebot.com"
+  ]
+}
