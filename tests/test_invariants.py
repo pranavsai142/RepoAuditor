@@ -36,5 +36,20 @@ def test_invariants(department: Path, tmp_path: Path, as_of: date) -> None:
 
     for repo in repos:
         assert "lines" not in repo
-        for field in ("additions", "deletions", "net", "churn", "files_changed"):
+        for field in (
+            "additions",
+            "deletions",
+            "net",
+            "churn",
+            "files_changed",
+            "merge_count",
+            "unique_path_count",
+            "occupancy_days",
+            "weekday_commits",
+            "head_ref",
+            "branch_count",
+        ):
             assert field in repo
+        for author in repo.get("authors") or []:
+            assert "first_commit" in author
+            assert "last_commit" in author

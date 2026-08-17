@@ -9,3 +9,9 @@ build/
 tests/fixtures/department/
 .DS_Store
 .env
+.superpowers/
+
+# Local scan outputs (names and emails)
+*-scan/
+*-scan[0-9]/
+*-scan[0-9][0-9]/

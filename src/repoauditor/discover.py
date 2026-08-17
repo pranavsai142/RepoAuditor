@@ -32,13 +32,14 @@ def discover(input_dir: Path) -> list[dict[str, str]]:
     root = input_dir.expanduser().resolve()
     if not root.is_dir():
         raise FileNotFoundError(f"not a directory: {root}")
+    # Pointed at a repo → that repo only. Nested .git (submodules, vendored
+    # clones) are not extra department members.
+    if is_git_repo(root):
+        return [{"repo_id": root.name, "path": str(root)}]
     found: list[Path] = []
     _walk(root, root, 0, found)
-    if not found and is_git_repo(root):
-        found = [root]
     repos = []
     for path in found:
-        rel = path.relative_to(root)
-        repo_id = "." if rel == Path(".") else rel.as_posix()
+        repo_id = path.relative_to(root).as_posix()
         repos.append({"repo_id": repo_id, "path": str(path)})
     return repos

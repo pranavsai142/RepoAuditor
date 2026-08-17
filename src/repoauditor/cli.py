@@ -20,7 +20,7 @@ from repoauditor.pipeline import (
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="repoauditor",
-        description="Scan a directory of local git repos. Git is not a timesheet.",
+        description="Scan a local git repo or a folder of clones.",
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
@@ -41,7 +41,7 @@ def main(argv: list[str] | None = None) -> int:
 
     p_scan = sub.add_parser(
         "scan",
-        help="deterministic collect + headless Grok executive summary (use --no-analyze only for harness)",
+        help="deterministic collect + per-repo Grok inspect (use --no-analyze only for harness)",
     )
     p_scan.add_argument("input_dir")
     p_scan.add_argument("--out", required=True)

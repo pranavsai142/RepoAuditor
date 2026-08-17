@@ -8,6 +8,7 @@ Mental models and contracts that are not obvious from the code.
 - [git-oracle.md](git-oracle.md) — First-party `git` extract contract (pretty-format, numstat, dates)
 - [analogs.md](analogs.md) — What we take from GrimoireLab / CHAOSS / Code Maat, and what we refuse
 - [auditor.md](auditor.md) — Evidence pack + headless Grok checklist auditor
+- [scoring.md](scoring.md) — Inspector tag scores (+1 / 0 / −1) for sorting a department dashboard
 
 ## Principles
 

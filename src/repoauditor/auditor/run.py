@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Any, Callable
 
-from repoauditor.auditor.grok_cli import run_headless
-from repoauditor.auditor.pack import _safe_name, build_department_pack, build_repo_pack
-from repoauditor.auditor.prompt import EXECUTIVE_SYSTEM_PROMPT, SYSTEM_PROMPT, executive_prompt, user_prompt
-from repoauditor.auditor.schema import EXECUTIVE_JSON_SCHEMA
+from repoauditor.auditor.grok_cli import GrokFailed, run_headless
+from repoauditor.auditor.pack import _safe_name, brief_for_grok, build_department_pack, build_repo_pack
+from repoauditor.auditor.prompt import SYSTEM_PROMPT, user_prompt
 from repoauditor.auditor.substance import score_repo
 from repoauditor.auditor.validate import validate_report
 from repoauditor.persist import read_json, read_jsonl, scan_paths, write_json
@@ -48,6 +48,8 @@ def cmd_pack(out_dir: Path) -> list[dict]:
     substance = load_substance(out_dir)
     packs_dir = paths["packs"]
     packs_dir.mkdir(parents=True, exist_ok=True)
+    for leftover in packs_dir.glob("*.json"):
+        leftover.unlink()
     packs = []
     for repo in repos:
         pack = build_repo_pack(repo, commits, findings, substance, Path(repo["path"]))
@@ -77,7 +79,7 @@ def cmd_analyze(
     *,
     grok_bin: str | None = None,
     runner: Callable[..., Any] | None = None,
-    timeout: int = 180,
+    timeout: int = 900,
 ) -> list[dict]:
     paths = scan_paths(out_dir)
     if not paths["packs"].exists() or not any(paths["packs"].glob("*.json")):
@@ -85,38 +87,57 @@ def cmd_analyze(
     reports: list[dict] = []
     analysis_dir = paths["analysis"]
     analysis_dir.mkdir(parents=True, exist_ok=True)
-    for pack_path in sorted(paths["packs"].glob("*.json")):
+    pack_files = sorted(paths["packs"].glob("*.json"))
+    for i, pack_path in enumerate(pack_files, start=1):
         pack = read_json(pack_path)
-        prompt_path = analysis_dir / f"{pack_path.stem}.prompt.md"
-        prompt_path.write_text(user_prompt(pack), encoding="utf-8")
-        raw = run_headless(
-            prompt_path,
-            SYSTEM_PROMPT,
-            Path(pack["path"]),
-            grok_bin=grok_bin,
-            runner=runner,
-            timeout=timeout,
-            schema=None,
+        print(
+            f"analyze {i}/{len(pack_files)} {pack.get('repo_id')}",
+            file=sys.stderr,
+            flush=True,
         )
-        validated = validate_report(raw, pack)
+        brief_path = analysis_dir / f"{pack_path.stem}.brief.json"
+        write_json(brief_path, brief_for_grok(pack))
+        prompt_path = analysis_dir / f"{pack_path.stem}.prompt.md"
+        prompt_path.write_text(
+            user_prompt(pack, pack_path, brief_path=brief_path),
+            encoding="utf-8",
+        )
+        try:
+            raw = run_headless(
+                prompt_path,
+                SYSTEM_PROMPT,
+                Path(pack["path"]),
+                grok_bin=grok_bin,
+                runner=runner,
+                timeout=timeout or 900,
+                schema=None,
+                explore=True,
+            )
+            validated = validate_report(raw, pack)
+        except Exception as exc:
+            validated = {
+                "repo_id": pack.get("repo_id"),
+                "purpose": "",
+                "category": "unknown",
+                "headline": "",
+                "executive_summary": "",
+                "checklist": [],
+                "next_inspect": [],
+                "stripped_unknown_hashes": [],
+                "analyze_error": _short_analyze_error(exc),
+            }
         write_json(analysis_dir / f"{pack_path.stem}.json", validated)
         reports.append(validated)
-    if paths["department_pack"].exists():
-        dept = read_json(paths["department_pack"])
-        exec_prompt = analysis_dir / "department.prompt.md"
-        exec_prompt.write_text(executive_prompt(dept), encoding="utf-8")
-        cwd = Path(dept.get("input_path") or out_dir)
-        if not cwd.exists():
-            cwd = out_dir
-        executive = run_headless(
-            exec_prompt,
-            EXECUTIVE_SYSTEM_PROMPT,
-            cwd,
-            grok_bin=grok_bin,
-            runner=runner,
-            timeout=timeout,
-            schema=EXECUTIVE_JSON_SCHEMA,
-        )
-        write_json(paths["executive"], executive)
     write_json(paths["analysis_index"], reports)
     return reports
+
+
+def _short_analyze_error(exc: BaseException) -> str:
+    if isinstance(exc, GrokFailed) and "timed out" in (exc.stderr or ""):
+        return exc.stderr.strip()[:200]
+    text = str(exc)
+    if "timed out" in text:
+        return "Analyze timed out. Inspector ran too long; retry or raise timeout."
+    if text.startswith("Command '"):
+        return "Analyze failed (grok exited). See analysis/reports/*.stderr.txt."
+    return text[:400]

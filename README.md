@@ -2,13 +2,13 @@
 
 Department-scale forensic scan of **local git repositories**. Point it at a folder that already contains the repos. It reconstructs the commit/contributor record, ranks repos and people, and flags activity *shapes* (README husks, bot-operated trees, daily duplicate commits, hot-potato occupancy, contributor fade, …) with a path back to exact commits.
 
-Git is not a timesheet. Absence of commits is not proof of absence of work; ritual commits are not proof of work. RepoAuditor ranks and explains; it does not issue verdicts.
-
 Output contains names and emails. Treat it as sensitive audit data. Do not publish a scan.
 
 ## Input
 
-A directory of already-cloned git repos. No GitHub/GitLab API, no clone step.
+A **git repo** (the folder has `.git`) — scan that repo only. Nested `.git` folders inside it are ignored.
+
+A **folder of clones** (the folder itself is not a git repo) — discover each repo under it and stop at the first `.git`. No GitHub/GitLab API, no clone step.
 
 ```text
 department/
@@ -17,18 +17,26 @@ department/
   nested/deep/old-thing/.git
 ```
 
+## Install
+
+Requires [uv](https://docs.astral.sh/uv/) and `git`. From the repo root:
+
+```bash
+uv sync --group dev
+```
+
 ## Run
 
 ```bash
-python -m repoauditor scan /path/to/department --out /tmp/ra-scan --as-of 2024-07-01
+uv run repoauditor scan /path/to/department --out /tmp/ra-scan --as-of 2024-07-01
 ```
 
-Writes JSON under `raw/` and `derived/`, then **always** runs headless Grok: per-repo interpretation (opens source + workflows) plus a department **executive summary**. `--no-analyze` is only for the test harness.
+Writes JSON under `raw/` and `derived/`, then a multi-page HTML report at `<out>/report/index.html` (sortable repo and people tables, charts, per-repo and per-person pages). Product `scan` then runs headless Grok for the inspector checklist. `--no-analyze` is only for the test harness.
 
 ```bash
-python -m repoauditor scan /path/to/department --out /tmp/ra-scan --as-of 2024-07-01
+uv run repoauditor scan /path/to/department --out /tmp/ra-scan --as-of 2024-07-01
 # re-run interpretation on an existing scan:
-python -m repoauditor analyze /tmp/ra-scan --as-of 2024-07-01
+uv run repoauditor analyze /tmp/ra-scan --as-of 2024-07-01
 ```
 
 Needs the `grok` CLI (`GROK_BIN` to override). Verify uses `--no-analyze` and does not call Grok.
@@ -41,7 +49,7 @@ Other commands: `discover`, `extract`, `rank`, `flag`, `pack`, `analyze`.
 scripts/verify.sh
 ```
 
-Rebuilds the fixture department (17 synthetic repos) and runs pytest. Does not invoke Grok.
+`uv sync --frozen --group dev`, rebuilds the fixture department (17 synthetic repos), and runs pytest. Does not invoke Grok.
 
 ## Docs
 

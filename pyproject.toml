@@ -5,11 +5,11 @@ description = "Department-scale forensic audit of local git repositories"
 requires-python = ">=3.11"
 readme = "README.md"
 
-[project.optional-dependencies]
-dev = ["pytest>=8"]
-
 [project.scripts]
 repoauditor = "repoauditor.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8"]
 
 [build-system]
 requires = ["setuptools>=68"]
@@ -23,4 +23,4 @@ repoauditor = ["bots_default.json", "assistants.json", "auditor/checklist.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = [".", "src"]

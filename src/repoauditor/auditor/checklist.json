@@ -41,11 +41,11 @@
   },
   {
     "id": "demo_vs_durable",
-    "question": "Does this look like a scaffolded demo or rewrite pitch sitting on top of (or instead of) a durable system — README claims replace/modernize/platform, tree is Vite/CRA defaults?"
+    "question": "Is the tree a durable system that still runs, or a scaffolded demo / unfinished rewrite pitch (replace, modernize, platform) sitting on defaults?"
   },
   {
     "id": "run_the_business",
-    "question": "Is this run-the-business shared services (logging, security, on-call, IaC, CI) that other teams depend on, or a one-off demo?"
+    "question": "Is this the org's live critical work — evergreen infrastructure, or a migration that actually finished and is now in service — or a side / unfinished tree? Pack is_ops is a path heuristic, not the answer. Multi-team platform is not required."
   },
   {
     "id": "requirements_theater",
@@ -53,7 +53,7 @@
   },
   {
     "id": "greenfield_vs_buy",
-    "question": "Are they greenfielding a bespoke replacement for something that is normally bought as a suite? Cite README claims vs the tree."
+    "question": "Are they replacing enterprise software that is normally bought (and often already in use) with a half-baked or assistant-written custom app, or did a real suite / finished migration stay in service? Cite claims vs the tree. Do not name vendors."
   },
   {
     "id": "next_inspect",

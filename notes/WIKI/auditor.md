@@ -5,39 +5,43 @@ Deterministic metrics cannot tell “3 added lines, all comments” from a featu
 ## Trigger
 
 ```bash
-python -m repoauditor scan /path/to/department --out /tmp/ra --as-of 2024-07-01
-python -m repoauditor analyze /tmp/ra --as-of 2024-07-01
+uv run repoauditor scan /path/to/department --out /tmp/ra --as-of 2024-07-01
+uv run repoauditor analyze /tmp/ra --as-of 2024-07-01
 ```
 
 Requires the `grok` CLI on PATH (or `GROK_BIN`). Auth: existing Grok login or `XAI_API_KEY`.
 
-`scripts/verify.sh` does **not** call Grok (`--no-analyze`). Product `scan` always analyzes: one shot per repo + one department executive summary.
+`scripts/verify.sh` does **not** call Grok (`--no-analyze`). Product `scan` always analyzes **once per repo** (mapper → investigator → scorer in that call). There is no department-wide executive Grok call. Each repo report carries its own `headline` + `executive_summary` on the repo detail page. The summary is written **last**, after every inspector tag is scored. It describes the tree and the record for a reader who has not seen the tags. Concerns and flags go in that story where they arise — not as a closing list of tag names. Ordinary readings (fork drift, student work, research iteration) stay available when the files support them. Not a second inspection and not a README restatement.
 
-## Operating protocol (feels deterministic)
+## Operating protocol (targeted investigation)
 
-Same steps on every repo. The pack is the entire world.
+Same three stages on every repo. The prompt is a **catalog** (paths + counts). The pack and slim brief stay on disk. The tree is cwd. Context is ~200k — do not dump thousands of commits into the prompt.
 
-- P0. No tools. No search. No recount.
-- P1. Metrics, findings, substance, file excerpts are given facts.
-- P2. Compare README to tree / source_samples / workflow_files (already in the pack).
-- P3. Answer every checklist id in order. Short. Or `cannot tell from pack`.
-- P4. See through the veil: volume ≠ work; comments ≠ product; scaffold ≠ replacement suite.
-- P5. JSON only. No investigation narrative.
+1. **Mapper** (`explore`, read-only) — list HEAD, read README, sample real source. Inform: purpose, category, head_substance, readme_match.
+2. **Investigator** (`explore`, read-only, fed the mapper notes) — follow flags and hunches. Do not stop at the README. Inform: commit_substance, wip, bots, padding, occupancy, AI.
+3. **Scorer** (parent) — assign every scored tag +1 / 0 / −1. Cut through the veil.
+4. **Summary** (parent, last) — headline + executive_summary from the scored tags, flags, and anomalies. JSON only.
 
-The questions are identical. The tree is not. That is the only place the model is allowed to think.
-
-Scripts pre-load README, up to 3 source files, and workflow file text so Grok never has to `read_file`. Headless run is `--max-turns 1` with tools disallowed.
+Blocked: `write`, `search_replace` (do not edit the evidence). Web is off. Everything else stays, including `read_file`, `grep`, `list_dir`, `Agent`, and shell for `git show` of pack hashes. `--max-turns 16`. The prompt lists file paths; Grok (or you) open them.
 
 ## Pack
 
-Rolled metrics, HEAD kinds, README, workflow file text, source samples, recent commits + patches + substance, flags, allowed hashes, checklist.
+On disk at `analysis/packs/<repo>.json`: rolled metrics, HEAD kinds, README excerpt, workflow/source samples, recent commits + patches + substance, flags, **all** allowed hashes, checklist.
+
+`analysis/reports/<repo>.brief.json` is a smaller sample (capped hashes/paths/patches) for a first read.
+
+`analysis/reports/<repo>.prompt.md` is only a catalog: paths + counts + flag names. It does not inline the pack.
 
 ## Checklist
 
 purpose, category, head_substance, commit_substance, readme_match, wip_theater, bot_vs_human, padding, occupancy, ai_assistance, demo_vs_durable, run_the_business, requirements_theater, greenfield_vs_buy, next_inspect.
 
+Dashboard sort key: see [scoring.md](scoring.md). Each scored tag is +1 / 0 / −1; the repo inspector score is their sum. `next_inspect` is not scored.
+
+`run_the_business` is live critical work or a finished migration now in service — not “shared service.” `greenfield_vs_buy` is the half-baked custom stand-in for enterprise software that is normally bought. Both stay org- and vendor-agnostic.
+
 ## What not to do
 
-- Do not let the model wander the repo (no tool loop).
-- Do not let it invent commits (validator strips unknown hashes).
-- Do not treat its category as a score.
+- Do not let it edit the repo (`write` / `search_replace`).
+- Do not invent commits (validator still strips unknown hashes).
+- Do not treat inspector score as a verdict. It is a sort key. See [scoring.md](scoring.md).

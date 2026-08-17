@@ -237,21 +237,30 @@ def _hot_potato(repo: dict, commits: list[dict]) -> list[dict]:
                 if second["hashes"]:
                     hashes.append(second["hashes"][0])
                     hashes.append(second["hashes"][-1])
+                first_name = first["identity_key"].split("\t", 1)[0]
+                second_name = second["identity_key"].split("\t", 1)[0]
                 return [
                     _finding(
                         "hot_potato",
                         "repo",
                         repo["repo_id"],
-                        "One human occupied the repo, then a gap, then a different human.",
+                        (
+                            f"{first_name} occupied {first['start'].isoformat()}–"
+                            f"{first['end'].isoformat()}, then a {gap}-day gap, then "
+                            f"{second_name} {second['start'].isoformat()}–"
+                            f"{second['end'].isoformat()}."
+                        ),
                         list(dict.fromkeys(hashes)),
                         {
                             "first": {
                                 "identity_key": first["identity_key"],
+                                "name": first_name,
                                 "start": first["start"].isoformat(),
                                 "end": first["end"].isoformat(),
                             },
                             "second": {
                                 "identity_key": second["identity_key"],
+                                "name": second_name,
                                 "start": second["start"].isoformat(),
                                 "end": second["end"].isoformat(),
                             },
@@ -320,7 +329,11 @@ def _burst_graveyard(repo: dict, commits: list[dict], as_of: date) -> list[dict]
             "burst_graveyard",
             "repo",
             repo["repo_id"],
-            "A short burst of commits is followed by a long silence before the as-of date.",
+            (
+                f"{len(best_hashes)} commits in a {T.BURST_WINDOW_DAYS}-day burst, "
+                f"then {days_before(last, as_of)} days silent after {last.isoformat()} "
+                f"(as-of {as_of.isoformat()})."
+            ),
             best_hashes,
             {
                 "burst_commits": len(best_hashes),
@@ -491,12 +504,17 @@ def _contributor_fade(person: dict, as_of: date) -> list[dict]:
             "contributor_fade",
             "person",
             person["identity_key"],
-            "Regular commit-days over a span, then silence before the as-of date.",
+            (
+                f"{person.get('author_name') or person['identity_key'].split(chr(9), 1)[0]} "
+                f"committed on {len(days)} days from {first.isoformat()} to {last.isoformat()}, "
+                f"then {days_before(last, as_of)} days silent (as-of {as_of.isoformat()})."
+            ),
             hashes,
             {
                 "distinct_days": len(days),
                 "span_days": span,
                 "density": density,
+                "first_commit": first.isoformat(),
                 "last_commit": last.isoformat(),
                 "as_of": as_of.isoformat(),
                 "silence_days": days_before(last, as_of),

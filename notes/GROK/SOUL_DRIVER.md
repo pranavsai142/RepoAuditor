@@ -27,7 +27,7 @@ The real deliverable is **pattern detection + evidence packs** on three lenses:
 ## Operating Philosophy
 
 - **Deterministic collection is the foundation.** Extract → assimilate → rank → flag is reproducible and model-free. It is not the finished audit.
-- **Grok interprets; it does not investigate.** Same operating protocol on every repo, one shot, no tool loop. The pack already holds metrics, README, patches, source samples, and workflow text. The model’s only job is comprehension that scripts cannot do. `--no-analyze` is harness-only.
+- **Grok investigates on a leash.** Deterministic metrics and flags are the brief. Headless Grok then runs a three-stage targeted investigation (mapper → investigator → scorer) with subagents and repo tools, so it can cut through the veil. It must not edit the tree. `--no-analyze` is harness-only.
 - **Department is the unit of analysis.** A single-repo view is a drill-down, not the home screen.
 - **Evidence over accusation.** Every flag must open the exact commits, diffs, authors, and dates that produced it. Metrics never "prove guilt"; they rank what a human must inspect.
 - **Shapes, not scores.** The diagnostic power is in *patterns over time* (cadence, duplication, handoff gaps, bot/human mix, sudden stop), not a single health number that can be gamed.
@@ -47,7 +47,7 @@ The real deliverable is **pattern detection + evidence packs** on three lenses:
 - Contributor disappearance is a first-class signal (daily activity March–June, then stop).
 - README-only / docs-only / empty-after-init repos are first-class signals.
 - Human review remains the last step. The app ranks and explains; it does not issue verdicts.
-- LLM / headless Grok answers that cite commits not in the pack are stripped. The model is an auditor clerk, not a judge.
+- LLM / headless Grok answers that cite commits not in the pack are stripped. Paths it actually opened may be cited. The model ranks and explains; it does not issue verdicts.
 
 ## Target pattern catalog (founding set)
 

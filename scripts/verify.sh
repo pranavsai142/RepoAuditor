@@ -7,9 +7,11 @@ if ! command -v git >/dev/null 2>&1; then
   exit 1
 fi
 
-if [ ! -x .venv/bin/python ]; then
-  python3 -m venv .venv
+if ! command -v uv >/dev/null 2>&1; then
+  echo "uv is required on PATH (https://docs.astral.sh/uv/getting-started/installation/)" >&2
+  exit 1
 fi
-.venv/bin/python -m pip install -e ".[dev]"
-.venv/bin/python tests/fixtures/build_fixtures.py
-.venv/bin/python -m pytest tests/ -q
+
+uv sync --frozen --group dev
+uv run python tests/fixtures/build_fixtures.py
+uv run pytest tests/ -q

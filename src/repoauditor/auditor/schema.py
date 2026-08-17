@@ -88,10 +88,12 @@ EXECUTIVE_JSON_SCHEMA: dict = {
 AUDITOR_JSON_SCHEMA: dict = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["purpose", "category", "checklist", "next_inspect"],
+    "required": ["purpose", "category", "headline", "executive_summary", "checklist", "next_inspect"],
     "properties": {
         "purpose": {"type": "string"},
         "category": {"type": "string", "enum": list(CATEGORIES)},
+        "headline": {"type": "string"},
+        "executive_summary": {"type": "string"},
         "checklist": {
             "type": "array",
             "items": {

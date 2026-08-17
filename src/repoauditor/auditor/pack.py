@@ -129,9 +129,63 @@ def build_repo_pack(
         "allowed_hashes": [c["hash"] for c in rows],
         "checklist": load_checklist(),
         "instructions": (
-            "Follow the operating protocol. Pack is complete: do not search. "
-            "Cite allowed_hashes or paths already in this pack."
+            "Cite hashes from allowed_hashes in this file. "
+            "Open the repo for files a tag needs. Do not invent hashes."
         ),
+    }
+
+
+def brief_for_grok(pack: dict, *, hash_cap: int = 40, path_cap: int = 40) -> dict:
+    """Smaller pack for the model: drop full hash/path dumps, keep what scoring needs."""
+    hashes: list[str] = []
+    for commit in pack.get("recent_commits") or []:
+        if commit.get("hash"):
+            hashes.append(commit["hash"])
+    for finding in pack.get("deterministic_findings") or []:
+        hashes.extend((finding.get("evidence") or {}).get("commit_hashes") or [])
+    seen: list[str] = []
+    for commit_hash in hashes:
+        if commit_hash not in seen:
+            seen.append(commit_hash)
+        if len(seen) >= hash_cap:
+            break
+    findings = []
+    for finding in pack.get("deterministic_findings") or []:
+        evidence = dict(finding.get("evidence") or {})
+        evidence["commit_hashes"] = (evidence.get("commit_hashes") or [])[:8]
+        findings.append(
+            {
+                "pattern": finding.get("pattern"),
+                "summary": finding.get("summary"),
+                "evidence": evidence,
+            }
+        )
+    commits = []
+    for commit in pack.get("recent_commits") or []:
+        row = dict(commit)
+        patch = row.get("patch_excerpt") or ""
+        if len(patch) > 1200:
+            row["patch_excerpt"] = patch[:1200]
+            row["patch_truncated"] = True
+        commits.append(row)
+    paths = pack.get("head_paths") or []
+    return {
+        "repo_id": pack.get("repo_id"),
+        "path": pack.get("path"),
+        "metrics": pack.get("metrics"),
+        "head_kinds": pack.get("head_kinds"),
+        "head_path_count": len(paths),
+        "head_path_sample": paths[:path_cap],
+        "readme": pack.get("readme"),
+        "source_samples": pack.get("source_samples"),
+        "workflow_files": pack.get("workflow_files"),
+        "is_ops": pack.get("is_ops"),
+        "docs_only": pack.get("docs_only"),
+        "has_requirements": pack.get("has_requirements"),
+        "deterministic_findings": findings,
+        "recent_commits": commits,
+        "allowed_hashes": seen,
+        "checklist": pack.get("checklist"),
     }
 
 

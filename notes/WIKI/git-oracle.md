@@ -63,7 +63,7 @@ Default with no revision range is `HEAD` only — that is why `--all` is locked.
 ## Duplicate contents
 
 - `tree` = `%T` (https://git-scm.com/docs/pretty-formats)
-- `patch_id` = `git patch-id --stable` on `git show --format= --patch <commit>` (https://git-scm.com/docs/git-patch-id). Null for merges and empty patches.
+- `patch_id` = `git patch-id --stable` on the **raw bytes** of `git show --format= --patch <commit>` (https://git-scm.com/docs/git-patch-id). Never decode the patch as UTF-8. Null for merges and empty patches.
 
 “Same contents” = equal `tree` **or** equal `patch_id`. No fuzzy matching in v1.
 

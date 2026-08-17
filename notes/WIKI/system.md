@@ -18,7 +18,7 @@ input dir
     ├──► rank        last commit / churn / human contributors
     ├──► flag        founding patterns + low_substance + evidence hashes
     ├──► pack        per-repo brief for the auditor agent
-    ├──► analyze     required on product scan: per-repo (read code + workflows) + department executive summary
+    ├──► analyze     one headless Grok call per repo (mapper → investigator → scorer + repo executive)
     ▼
  report     JSON + static HTML  (ranks, explains, no verdicts)
 ```
@@ -27,12 +27,10 @@ This is GrimoireLab’s collect → enrich → identity → display, collapsed o
 
 ## 1. Input / discovery
 
-- Walk the directory. A child is a repo if it has a `.git` file or directory.
-- Do not walk *into* a discovered repo (submodules are not extra department members unless cloned as their own tree).
-- If the root itself is a repo and has **no** child repos → one-repo department.
-- If the root is a repo **and** has child repos → children are the department (the root is a container).
-- Skip: `.git`, `node_modules`, `.venv`, `venv`, `__pycache__`. Depth cap 8.
-- `repo_id` = POSIX path relative to the input root.
+- If the path you pointed at **is a git repo** → scan that repo only. Nested `.git` folders inside it are ignored.
+- If the path is **not** a git repo → treat it as a folder of clones. Walk, stop at the first `.git` of each child, depth ≤ 8.
+- Skip: `.git`, `node_modules`, `.venv`, `venv`, `__pycache__`.
+- `repo_id` = directory name when the input is the repo; otherwise POSIX path relative to the input root.
 
 ## 2. Collection (metrics from git)
 
@@ -90,7 +88,7 @@ Copy on findings **explains**. It does not say guilty, malfeasance, or fired.
 ## 5. Display
 
 ```
-python -m repoauditor scan <dir> --out <scan> --as-of YYYY-MM-DD
+uv run repoauditor scan <dir> --out <scan> --as-of YYYY-MM-DD
 ```
 
 ```
@@ -112,20 +110,16 @@ python -m repoauditor scan <dir> --out <scan> --as-of YYYY-MM-DD
 `scan --analyze` (or `repoauditor analyze <scan>`) runs **headless Grok**:
 
 ```text
-grok --prompt-file <pack prompt> --json-schema <auditor schema> --output-format json \
-  --system-prompt-override <financial-auditor rules> --cwd <that repo> \
-  --tools read_file,grep,list_dir --max-turns 8 --yolo --verbatim
+grok --prompt-file <brief prompt> --json-schema <auditor schema> --output-format json \
+  --system-prompt-override <mapper→investigator→scorer> --cwd <that repo> \
+  --disallowed-tools search_replace,write --max-turns 16 --yolo --verbatim
 ```
 
-Grok may read files in that repo. It must still cite hashes from the pack. Invented hashes are stripped.
+The analyze prompt is a catalog (file paths + counts). Grok reads the pack/brief files, then explores the repo with subagents. It must still cite hashes from the pack. Invented hashes are stripped. Do not inline thousands of commits into the prompt (~200k context).
 
 Verify does **not** call Grok. Analyze is optional and needs the `grok` CLI (or `GROK_BIN`).
 
-HTML: caveat banner, repo table, people table, finding cards with commit hashes. No SPA. No verdict chrome.
-
-**Locked caveat:**
-
-> Git is not a timesheet. Absence of commits is not proof of absence of work; ritual commits are not proof of work. RepoAuditor ranks and explains; it does not issue verdicts.
+HTML: dashboard at `report/index.html` (counts, week/month bars, sortable repo and people tables, inspector scorecards), plus `report/repos/` and `report/people/` drill-downs with day calendars. Sorting is a small local script, not a SPA. No verdict chrome.
 
 Output contains names and emails. It is sensitive audit data, not for publication.
 

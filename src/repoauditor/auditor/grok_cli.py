@@ -6,17 +6,17 @@ import json
 import os
 import shutil
 import subprocess
+import uuid
 from pathlib import Path
 from typing import Callable
 
 from repoauditor.auditor.schema import AUDITOR_JSON_SCHEMA
 
-# One model response. No tool loop. The pack already contains files.
-DEFAULT_MAX_TURNS = "1"
-DISALLOWED_TOOLS = (
-    "read_file,grep,list_dir,run_terminal_cmd,web_search,web_fetch,"
-    "search_replace,write,Agent"
-)
+# Investigate the repo. Only block mutations. Web is off via --disable-web-search.
+EXPLORE_MAX_TURNS = "16"
+EXEC_MAX_TURNS = "1"
+DISALLOWED_TOOLS = "search_replace,write"
+EXEC_DISALLOWED_TOOLS = "search_replace,write,Agent"
 
 
 class GrokNotFound(RuntimeError):
@@ -29,7 +29,9 @@ class GrokFailed(RuntimeError):
         self.returncode = returncode
         self.stderr = stderr
         self.stdout = stdout
-        super().__init__(f"headless grok failed ({returncode}): {' '.join(cmd)}\n{stderr}")
+        super().__init__(
+            f"headless grok failed ({returncode}): {(stderr or stdout or '').strip()[:1500] or 'no output'}"
+        )
 
 
 def find_grok(explicit: str | None = None) -> str:
@@ -57,12 +59,20 @@ def build_cmd(
     system_prompt: str,
     cwd: Path,
     schema: dict | None = None,
+    explore: bool = True,
 ) -> list[str]:
     schema = schema or AUDITOR_JSON_SCHEMA
-    return [
+    # grok opens --prompt-file relative to --cwd (the scanned repo), not process cwd
+    prompt = Path(prompt_file).expanduser().resolve()
+    # Fresh session id so a TUI `--resume` of an older live run cannot attach
+    # to this process (sessions are grouped by --cwd).
+    session_id = str(uuid.uuid4())
+    cmd = [
         grok_bin,
         "--prompt-file",
-        str(prompt_file),
+        str(prompt),
+        "--session-id",
+        session_id,
         "--json-schema",
         json.dumps(schema, separators=(",", ":")),
         "--output-format",
@@ -71,32 +81,102 @@ def build_cmd(
         system_prompt,
         "--cwd",
         str(cwd),
-        "--disallowed-tools",
-        DISALLOWED_TOOLS,
-        "--max-turns",
-        DEFAULT_MAX_TURNS,
-        "--no-plan",
-        "--no-subagents",
         "--disable-web-search",
         "--no-auto-update",
         "--verbatim",
         "--yolo",
+        "--no-plan",
     ]
+    if explore:
+        cmd.extend(
+            [
+                "--disallowed-tools",
+                DISALLOWED_TOOLS,
+                "--max-turns",
+                EXPLORE_MAX_TURNS,
+            ]
+        )
+    else:
+        cmd.extend(
+            [
+                "--disallowed-tools",
+                EXEC_DISALLOWED_TOOLS,
+                "--max-turns",
+                EXEC_MAX_TURNS,
+                "--no-subagents",
+            ]
+        )
+    return cmd
 
 
 def parse_headless_json(raw: str) -> dict:
-    data = json.loads(raw)
-    if isinstance(data, dict) and data.get("type") == "error":
-        raise GrokFailed(["grok"], 1, data.get("message") or raw, raw)
-    if isinstance(data, dict) and "structured_output" in data and data["structured_output"]:
-        out = data["structured_output"]
-        return out if isinstance(out, dict) else json.loads(out)
-    text = data.get("text") if isinstance(data, dict) else None
+    """Accept a grok wrapper, raw auditor JSON, or several objects jammed together."""
+    if not raw or not raw.strip():
+        raise ValueError("headless grok produced empty stdout")
+    candidates = _iter_json_dicts(raw)
+    picked = _pick_report_dict(candidates)
+    if picked is None:
+        raise ValueError("headless grok JSON had no object")
+    if picked.get("type") == "error":
+        raise GrokFailed(["grok"], 1, picked.get("message") or raw, raw)
+    if picked.get("structured_output"):
+        out = picked["structured_output"]
+        if isinstance(out, dict):
+            return out
+        if isinstance(out, str):
+            nested = _pick_report_dict(_iter_json_dicts(out))
+            if nested:
+                return nested
+    text = picked.get("text")
     if isinstance(text, dict):
         return text
     if isinstance(text, str) and text.strip():
+        nested = _pick_report_dict(_iter_json_dicts(text))
+        if nested:
+            return nested
         return _parse_json_object(text)
+    if _looks_like_report(picked):
+        return picked
     raise ValueError("headless grok JSON had no structured_output or text")
+
+
+def _iter_json_dicts(text: str) -> list[dict]:
+    decoder = json.JSONDecoder()
+    found: list[dict] = []
+    idx = 0
+    n = len(text)
+    while idx < n:
+        while idx < n and text[idx] not in "{[":
+            idx += 1
+        if idx >= n:
+            break
+        try:
+            value, end = decoder.raw_decode(text, idx)
+        except json.JSONDecodeError:
+            idx += 1
+            continue
+        if isinstance(value, dict):
+            found.append(value)
+        elif isinstance(value, list):
+            found.extend(item for item in value if isinstance(item, dict))
+        idx = max(end, idx + 1)
+    return found
+
+
+def _looks_like_report(data: dict) -> bool:
+    return "checklist" in data or ("purpose" in data and "category" in data) or "headline" in data
+
+
+def _pick_report_dict(candidates: list[dict]) -> dict | None:
+    if not candidates:
+        return None
+    for item in reversed(candidates):
+        if _looks_like_report(item):
+            return item
+    for item in reversed(candidates):
+        if item.get("structured_output") or item.get("text") is not None:
+            return item
+    return candidates[-1]
 
 
 def _parse_json_object(text: str) -> dict:
@@ -106,18 +186,9 @@ def _parse_json_object(text: str) -> dict:
         if text.startswith("json"):
             text = text[4:]
         text = text.strip()
-    try:
-        value = json.loads(text)
-        if isinstance(value, dict):
-            return value
-    except json.JSONDecodeError:
-        pass
-    start = text.find("{")
-    end = text.rfind("}")
-    if start >= 0 and end > start:
-        value = json.loads(text[start : end + 1])
-        if isinstance(value, dict):
-            return value
+    picked = _pick_report_dict(_iter_json_dicts(text))
+    if picked:
+        return picked
     raise ValueError("could not parse JSON object from grok text")
 
 
@@ -130,6 +201,7 @@ def run_headless(
     runner: Callable[..., subprocess.CompletedProcess[str]] | None = None,
     timeout: int = 90,
     schema: dict | None = None,
+    explore: bool = True,
 ) -> dict:
     binary = find_grok(grok_bin)
     cmd = build_cmd(
@@ -138,15 +210,43 @@ def run_headless(
         system_prompt=system_prompt,
         cwd=cwd,
         schema=schema,
+        explore=explore,
     )
     run = runner or subprocess.run
-    result = run(
-        cmd,
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=timeout or 90,
-    )
+    limit = timeout or 90
+    try:
+        result = run(
+            cmd,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=limit,
+        )
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout or ""
+        stderr = exc.stderr or ""
+        if isinstance(stdout, bytes):
+            stdout = stdout.decode("utf-8", errors="replace")
+        if isinstance(stderr, bytes):
+            stderr = stderr.decode("utf-8", errors="replace")
+        _stash_output(prompt_file, stdout, stderr)
+        raise GrokFailed(cmd, -1, f"timed out after {limit}s", stdout) from exc
+    stdout = result.stdout or ""
+    stderr = result.stderr or ""
     if result.returncode != 0:
-        raise GrokFailed(cmd, result.returncode, result.stderr or "", result.stdout or "")
-    return parse_headless_json(result.stdout)
+        _stash_output(prompt_file, stdout, stderr)
+        raise GrokFailed(cmd, result.returncode, stderr, stdout)
+    try:
+        return parse_headless_json(stdout)
+    except (ValueError, json.JSONDecodeError) as exc:
+        _stash_output(prompt_file, stdout, stderr)
+        raise ValueError(f"{exc}\n(saved grok stdout next to {prompt_file})") from exc
+
+
+def _stash_output(prompt_file: Path, stdout: str, stderr: str) -> None:
+    dest = Path(prompt_file)
+    try:
+        dest.with_suffix(".stdout.txt").write_text(stdout, encoding="utf-8")
+        dest.with_suffix(".stderr.txt").write_text(stderr, encoding="utf-8")
+    except OSError:
+        return

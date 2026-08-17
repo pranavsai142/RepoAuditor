@@ -1,10 +1,51 @@
 from __future__ import annotations
 
+import os
+import subprocess
 from pathlib import Path
 
+import pytest
+
+from repoauditor.auditor.substance import score_repo, show_patch
 from repoauditor.discover import discover
 from repoauditor.extract import LOG_ARGV, extract_repo
 from repoauditor.gitcmd import run_git
+
+
+def _init_repo(path: Path) -> Path:
+    path.mkdir(parents=True)
+    subprocess.run(
+        ["git", "-c", "init.defaultBranch=main", "init"],
+        cwd=path,
+        check=True,
+        capture_output=True,
+    )
+    for key, value in (
+        ("user.name", "fixture"),
+        ("user.email", "fixture@dept.test"),
+        ("commit.gpgsign", "false"),
+    ):
+        subprocess.run(["git", "config", key, value], cwd=path, check=True, capture_output=True)
+    return path
+
+
+def _commit_bytes(repo: Path, rel: str, payload: bytes, message: str) -> None:
+    dest = repo / rel
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(payload)
+    env = os.environ.copy()
+    env.update(
+        {
+            "GIT_AUTHOR_NAME": "Latin Author",
+            "GIT_AUTHOR_EMAIL": "latin@dept.test",
+            "GIT_AUTHOR_DATE": "2024-03-01T12:00:00+00:00",
+            "GIT_COMMITTER_NAME": "Latin Author",
+            "GIT_COMMITTER_EMAIL": "latin@dept.test",
+            "GIT_COMMITTER_DATE": "2024-03-01T12:00:00+00:00",
+        }
+    )
+    subprocess.run(["git", "add", rel], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", message], cwd=repo, check=True, capture_output=True, env=env)
 
 
 def _oracle_count(repo: Path) -> int:
@@ -65,3 +106,29 @@ def test_extract_meta_records_argv(department: Path) -> None:
     assert "--all" in meta["argv"]
     assert "--numstat" in meta["argv"]
     assert "--no-mailmap" in meta["argv"]
+
+
+def test_extract_survives_non_utf8_patch(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path / "latin1")
+    # 0xc3 with no continuation byte — the crash from a real department clone.
+    _commit_bytes(repo, "note.txt", b"caf\xe9 \xc3 broken\n", "add latin-1 note")
+    commits, meta = extract_repo("latin1", repo)
+    assert len(commits) == 1
+    assert meta["commit_count"] == 1
+    assert commits[0].hash
+    assert commits[0].patch_id  # raw bytes still hash
+    show_patch(repo, commits[0].hash)  # substance path must not raise either
+    scored = score_repo(repo, [{"repo_id": "latin1", "hash": commits[0].hash, "is_merge": False}])
+    assert f"latin1:{commits[0].hash}" in scored
+
+
+def test_run_git_ignores_inherited_git_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    target = _init_repo(tmp_path / "target")
+    _commit_bytes(target, "keep.txt", b"only in target\n", "target commit")
+    decoy = _init_repo(tmp_path / "decoy")
+    _commit_bytes(decoy, "other.txt", b"decoy\n", "decoy commit")
+    monkeypatch.setenv("GIT_DIR", str(decoy / ".git"))
+    monkeypatch.setenv("GIT_WORK_TREE", str(decoy))
+    result = run_git(target, "ls-tree", "-r", "--name-only", "HEAD")
+    assert "keep.txt" in result.stdout
+    assert "other.txt" not in result.stdout

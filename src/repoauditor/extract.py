@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
-from repoauditor.gitcmd import git_version, run_git
+from repoauditor.gitcmd import git_version, run_git, run_git_bytes
 from repoauditor.models import Commit, FileChange, to_dict, volume_of
 
 LOG_FORMAT = "%x1e%H%x00%T%x00%P%x00%an%x00%ae%x00%aI%x00%cn%x00%ce%x00%cI%x00%s"
@@ -48,6 +48,10 @@ def extract_repo(repo_id: str, repo_path: Path) -> tuple[list[Commit], dict]:
         "readme_excerpt": _readme_excerpt(repo_path, head_paths),
         "tag_count": _tag_count(repo_path),
         "commit_count": len(commits),
+        "head_ref": _head_ref(repo_path),
+        "branch_count": _ref_count(repo_path, "refs/heads"),
+        "remote_count": _remote_count(repo_path),
+        "head_file_count": len(head_paths),
     }
     return commits, meta
 
@@ -136,13 +140,14 @@ def _parse_numstat(line: str) -> FileChange | None:
 
 
 def _patch_id(repo: Path, commit_hash: str) -> str | None:
-    shown = run_git(repo, "show", "--format=", "--patch", commit_hash, check=False)
+    # Patch bytes are file content, not log encoding. Never decode as UTF-8.
+    shown = run_git_bytes(repo, "show", "--format=", "--patch", commit_hash, check=False)
     if shown.returncode != 0 or not shown.stdout.strip():
         return None
-    patched = run_git(None, "patch-id", "--stable", input_text=shown.stdout, check=False)
+    patched = run_git_bytes(None, "patch-id", "--stable", input_bytes=shown.stdout, check=False)
     if patched.returncode != 0 or not patched.stdout.strip():
         return None
-    return patched.stdout.split()[0]
+    return patched.stdout.split()[0].decode("ascii", errors="replace")
 
 
 def _head_paths(repo: Path) -> list[str]:
@@ -163,7 +168,25 @@ def _readme_excerpt(repo: Path, head_paths: list[str]) -> str:
 
 
 def _tag_count(repo: Path) -> int:
-    result = run_git(repo, "for-each-ref", "refs/tags", check=False)
+    return _ref_count(repo, "refs/tags")
+
+
+def _ref_count(repo: Path, prefix: str) -> int:
+    result = run_git(repo, "for-each-ref", prefix, check=False)
+    if result.returncode != 0:
+        return 0
+    return len([line for line in result.stdout.splitlines() if line])
+
+
+def _head_ref(repo: Path) -> str:
+    result = run_git(repo, "rev-parse", "--abbrev-ref", "HEAD", check=False)
+    if result.returncode != 0:
+        return ""
+    return result.stdout.strip()
+
+
+def _remote_count(repo: Path) -> int:
+    result = run_git(repo, "remote", check=False)
     if result.returncode != 0:
         return 0
     return len([line for line in result.stdout.splitlines() if line])

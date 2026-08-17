@@ -15,7 +15,7 @@ from repoauditor.identity import apply_bots_and_keys, build_identities
 from repoauditor.patterns import detect_all
 from repoauditor.persist import read_json, read_jsonl, scan_paths, write_json, write_jsonl
 from repoauditor.rank import rank as rank_tables
-from repoauditor.report import render_html
+from repoauditor.report import write_report
 
 
 def cmd_discover(input_dir: Path) -> list[dict]:
@@ -93,20 +93,18 @@ def _write_report(out_dir: Path, as_of: date, analysis: list[dict] | None = None
         analysis = read_json(paths["analysis_index"])
     assistance = read_json(paths["assistance"]) if paths["assistance"].exists() else {}
     executive = read_json(paths["executive"]) if paths["executive"].exists() else None
-    html = render_html(
+    return write_report(
+        out_dir,
         repos,
         people,
-        rankings,
         findings,
         as_of,
         meta["input_path"],
         analysis=analysis or [],
         assistance=assistance,
         executive=executive,
+        rankings=rankings,
     )
-    paths["report"].parent.mkdir(parents=True, exist_ok=True)
-    paths["report"].write_text(html, encoding="utf-8")
-    return paths["report"]
 
 
 def cmd_scan(
@@ -125,9 +123,10 @@ def cmd_scan(
     findings = cmd_flag(out_dir, as_of)
     cmd_pack(out_dir)
     analysis: list[dict] = []
+    report = _write_report(out_dir, as_of, analysis)
     if analyze:
         analysis = cmd_analyze(out_dir, grok_bin=grok_bin)
-    report = _write_report(out_dir, as_of, analysis)
+        report = _write_report(out_dir, as_of, analysis)
     return {
         **extract_info,
         "findings": len(findings),
