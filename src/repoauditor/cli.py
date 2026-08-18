@@ -5,6 +5,7 @@ import json
 import sys
 from pathlib import Path
 
+from repoauditor.auditor.grok_cli import ANALYZE_TIMEOUT, EXPLORE_MAX_TURNS
 from repoauditor.auditor.run import cmd_analyze, cmd_pack
 from repoauditor.pipeline import (
     cmd_discover,
@@ -55,14 +56,14 @@ def main(argv: list[str] | None = None) -> int:
     p_scan.add_argument(
         "--timeout",
         type=int,
-        default=3600,
-        help="seconds to wait for each grok process (wall clock, not turns)",
+        default=ANALYZE_TIMEOUT,
+        help="seconds to wait for each grok process (wall clock, not turns; default 86400)",
     )
     p_scan.add_argument(
         "--max-turns",
         type=int,
-        default=48,
-        help="grok --max-turns per repo (each tool call counts; default 48)",
+        default=EXPLORE_MAX_TURNS,
+        help="grok --max-turns per repo (each tool call counts; default 512)",
     )
 
     p_pack = sub.add_parser("pack", help="write auditor evidence packs from a scan")
@@ -75,14 +76,14 @@ def main(argv: list[str] | None = None) -> int:
     p_an.add_argument(
         "--timeout",
         type=int,
-        default=3600,
-        help="seconds to wait for each grok process (wall clock, not turns)",
+        default=ANALYZE_TIMEOUT,
+        help="seconds to wait for each grok process (wall clock, not turns; default 86400)",
     )
     p_an.add_argument(
         "--max-turns",
         type=int,
-        default=48,
-        help="grok --max-turns per repo (each tool call counts; default 48)",
+        default=EXPLORE_MAX_TURNS,
+        help="grok --max-turns per repo (each tool call counts; default 512)",
     )
 
     args = parser.parse_args(argv)

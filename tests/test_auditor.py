@@ -120,7 +120,7 @@ def test_headless_grok_command_shape(tmp_path: Path, monkeypatch) -> None:
     assert "--output-format" in cmd
     assert "--system-prompt-override" in cmd
     assert "--max-turns" in cmd
-    assert cmd[cmd.index("--max-turns") + 1] == "48"
+    assert cmd[cmd.index("--max-turns") + 1] == "512"
     cmd64 = build_cmd(
         grok_bin="/opt/grok",
         prompt_file=relative,

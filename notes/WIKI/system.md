@@ -112,7 +112,7 @@ uv run repoauditor scan <dir> --out <scan> --as-of YYYY-MM-DD
 ```text
 grok --prompt-file <brief prompt> --json-schema <auditor schema> --output-format json \
   --system-prompt-override <mapper→investigator→scorer> --cwd <that repo> \
-  --disallowed-tools search_replace,write --max-turns 48 --yolo --verbatim
+  --disallowed-tools search_replace,write --max-turns 512 --yolo --verbatim
 ```
 
 The analyze prompt is a catalog (file paths + counts). Grok reads the pack/brief files, then explores the repo with subagents. It must still cite hashes from the pack. Invented hashes are stripped. Do not inline thousands of commits into the prompt (~200k context).

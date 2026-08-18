@@ -7,6 +7,7 @@ from pathlib import Path
 
 from repoauditor.assimilate import assimilate
 from repoauditor.assistants import assistance_inventory
+from repoauditor.auditor.grok_cli import ANALYZE_TIMEOUT, EXPLORE_MAX_TURNS
 from repoauditor.auditor.run import cmd_analyze, cmd_pack, cmd_substance, load_substance
 from repoauditor.dates import parse_as_of
 from repoauditor.discover import discover
@@ -114,8 +115,8 @@ def cmd_scan(
     *,
     analyze: bool = False,
     grok_bin: str | None = None,
-    timeout: int = 3600,
-    max_turns: int = 48,
+    timeout: int = ANALYZE_TIMEOUT,
+    max_turns: int = EXPLORE_MAX_TURNS,
 ) -> dict:
     extract_info = cmd_extract(input_dir, out_dir)
     cmd_assimilate(out_dir)

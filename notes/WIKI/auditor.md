@@ -22,7 +22,7 @@ Same three stages on every repo. The prompt is a **catalog** (paths + counts). T
 3. **Scorer** (parent) — assign every scored tag +1 / 0 / −1. Cut through the veil.
 4. **Summary** (parent, last) — headline + executive_summary from the scored tags, flags, and anomalies. JSON only.
 
-Blocked: `write`, `search_replace` (do not edit the evidence). Web is off. Everything else stays, including `read_file`, `grep`, `list_dir`, `Agent`, and shell for `git show` of pack hashes. `--max-turns 48` (each parent tool call is a turn; `--timeout` is only wall clock). The prompt lists file paths; Grok (or you) open them.
+Blocked: `write`, `search_replace` (do not edit the evidence). Web is off. Everything else stays, including `read_file`, `grep`, `list_dir`, `Agent`, and shell for `git show` of pack hashes. `--max-turns 512` (each parent tool call is a turn; `--timeout` default 86400s is only wall clock). The prompt lists file paths; Grok (or you) open them.
 
 ## Pack
 

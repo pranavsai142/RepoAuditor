@@ -13,9 +13,10 @@ from typing import Callable
 from repoauditor.auditor.schema import AUDITOR_JSON_SCHEMA
 
 # Investigate the repo. Only block mutations. Web is off via --disable-web-search.
-# Each parent tool call is a turn. Mapper + investigator + scorer need more than 16.
-EXPLORE_MAX_TURNS = 48
+# Each parent tool call is a turn. Keep these high so a fat repo can finish.
+EXPLORE_MAX_TURNS = 512
 EXEC_MAX_TURNS = 1
+ANALYZE_TIMEOUT = 86400
 DISALLOWED_TOOLS = "search_replace,write"
 EXEC_DISALLOWED_TOOLS = "search_replace,write,Agent"
 

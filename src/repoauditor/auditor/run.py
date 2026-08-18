@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 from typing import Any, Callable
 
-from repoauditor.auditor.grok_cli import GrokFailed, run_headless
+from repoauditor.auditor.grok_cli import ANALYZE_TIMEOUT, EXPLORE_MAX_TURNS, GrokFailed, run_headless
 from repoauditor.auditor.pack import _safe_name, brief_for_grok, build_department_pack, build_repo_pack
 from repoauditor.auditor.prompt import SYSTEM_PROMPT, user_prompt
 from repoauditor.auditor.substance import score_repo
@@ -79,8 +79,8 @@ def cmd_analyze(
     *,
     grok_bin: str | None = None,
     runner: Callable[..., Any] | None = None,
-    timeout: int = 3600,
-    max_turns: int = 48,
+    timeout: int = ANALYZE_TIMEOUT,
+    max_turns: int = EXPLORE_MAX_TURNS,
 ) -> list[dict]:
     paths = scan_paths(out_dir)
     if not paths["packs"].exists() or not any(paths["packs"].glob("*.json")):
@@ -110,8 +110,8 @@ def cmd_analyze(
                 Path(pack["path"]),
                 grok_bin=grok_bin,
                 runner=runner,
-                timeout=timeout or 3600,
-                max_turns=max_turns or 48,
+                timeout=timeout or ANALYZE_TIMEOUT,
+                max_turns=max_turns or EXPLORE_MAX_TURNS,
                 schema=None,
                 explore=True,
             )
@@ -140,7 +140,7 @@ def _short_analyze_error(exc: BaseException) -> str:
     text = str(exc)
     lowered = text.lower()
     if "max turn" in lowered or "max_turns" in lowered:
-        return "Analyze hit --max-turns (each tool call is a turn). Timeout does not add turns. Retry with --max-turns 64 or higher."
+        return "Analyze hit --max-turns (each tool call is a turn). Timeout does not add turns. Retry with a higher --max-turns."
     if "timed out" in text:
         return "Analyze timed out. Inspector ran too long; retry or raise --timeout."
     if text.startswith("Command '"):
