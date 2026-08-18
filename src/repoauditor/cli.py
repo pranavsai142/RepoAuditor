@@ -65,6 +65,16 @@ def main(argv: list[str] | None = None) -> int:
         default=EXPLORE_MAX_TURNS,
         help="grok --max-turns per repo (each tool call counts; default 512)",
     )
+    p_scan.add_argument(
+        "--no-json-schema",
+        action="store_true",
+        help="do not pass --json-schema (local models that only write prose)",
+    )
+    p_scan.add_argument(
+        "--model",
+        default=None,
+        help="grok --model for analyze (use a JSON-capable model if the local one cannot)",
+    )
 
     p_pack = sub.add_parser("pack", help="write auditor evidence packs from a scan")
     p_pack.add_argument("scan")
@@ -84,6 +94,16 @@ def main(argv: list[str] | None = None) -> int:
         type=int,
         default=EXPLORE_MAX_TURNS,
         help="grok --max-turns per repo (each tool call counts; default 512)",
+    )
+    p_an.add_argument(
+        "--no-json-schema",
+        action="store_true",
+        help="do not pass --json-schema (local models that only write prose)",
+    )
+    p_an.add_argument(
+        "--model",
+        default=None,
+        help="grok --model for analyze (use a JSON-capable model if the local one cannot)",
     )
 
     args = parser.parse_args(argv)
@@ -110,6 +130,8 @@ def main(argv: list[str] | None = None) -> int:
                     grok_bin=args.grok_bin,
                     timeout=args.timeout,
                     max_turns=args.max_turns,
+                    json_schema=not args.no_json_schema,
+                    model=args.model,
                 ),
                 indent=2,
             )
@@ -126,6 +148,8 @@ def main(argv: list[str] | None = None) -> int:
             grok_bin=args.grok_bin,
             timeout=args.timeout,
             max_turns=args.max_turns,
+            json_schema=not args.no_json_schema,
+            model=args.model,
         )
         _write_report(out, parse_as_of_arg(args.as_of), reports)
         print(json.dumps({"analyzed": len(reports)}, indent=2))

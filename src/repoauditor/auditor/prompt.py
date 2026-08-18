@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from repoauditor.auditor.schema import CATEGORIES, CHECKLIST_IDS
+
 SYSTEM_PROMPT = """\
 You audit one git repo (cwd). Scripts already counted history.
 The user message is a catalog of files — not the evidence. Context is ~200k; do not slurp the pack.
@@ -31,8 +33,43 @@ OPERATING PROTOCOL
    Still cover: what it does; whether anyone still uses it and how; who is on it; meta-history (how it got here).
    Volume is not work. Comments are not a product. A scaffold is not a suite. cannot tell when you cannot tell.
 
-Rules: open catalog files as needed; do not invent hashes; do not dump every commit into context; do not edit the tree; do not search the web; JSON only (schema).
+Rules: open catalog files as needed; do not invent hashes; do not dump every commit into context; do not edit the tree; do not search the web.
+End with one JSON object in the shape below. If you cannot, write the summary as plain text.
 """
+
+SCORER_SYSTEM_PROMPT = """\
+You only fill a JSON object. You do not investigate. You do not write prose.
+Output exactly one JSON object. No markdown. No fences. No keys other than the template.
+No text before or after the object.
+"""
+
+
+def checklist_json_shape() -> str:
+    items = [
+        {
+            "id": cid,
+            "answer": "",
+            "concern": False,
+            "evidence_hashes": [],
+            "evidence_paths": [],
+        }
+        for cid in CHECKLIST_IDS
+        if cid != "next_inspect"
+    ]
+    skeleton = {
+        "purpose": "",
+        "category": "unknown",
+        "headline": "",
+        "executive_summary": "",
+        "checklist": items,
+        "next_inspect": [{"hash": "", "why": ""}],
+    }
+    return (
+        "JSON shape (fill every checklist id; category one of "
+        + ", ".join(CATEGORIES)
+        + "):\n"
+        + json.dumps(skeleton, indent=2)
+    )
 
 EXECUTIVE_SYSTEM_PROMPT = """\
 One department executive summary from this pack. No tools. No recount.
@@ -106,8 +143,64 @@ def user_prompt(
         + ("\n".join(flag_lines) or "- none")
         + "\n\nRead the slim brief first if present. "
         "Open the full pack only for a hash or path you need. "
-        "Then mapper → investigator → scorer.\n"
+        "Then mapper → investigator → scorer.\n\n"
+        + checklist_json_shape()
+        + "\n"
     )
+
+
+def scorer_followup_prompt(report: dict, pack: dict) -> str:
+    ids = [
+        str(item.get("id"))
+        for item in pack.get("checklist") or []
+        if isinstance(item, dict) and item.get("id")
+    ] or [cid for cid in CHECKLIST_IDS if cid != "next_inspect"]
+    headline = report.get("headline") or ""
+    summary = report.get("executive_summary") or ""
+    return (
+        "ONLY fill the JSON template at the bottom. Nothing else.\n"
+        "Rules (deterministic):\n"
+        f"- purpose = one short clause from the notes. category = exactly one of: {', '.join(CATEGORIES)}.\n"
+        "- headline = copy the Headline line below, character for character. If empty, first sentence of the notes.\n"
+        "- executive_summary = copy the Notes block below, character for character. Do not rewrite it.\n"
+        "- checklist: one object per id listed, in that order. Do not add or drop ids.\n"
+        "- answer = a sentence grounded in the notes. If the notes do not decide it, answer must start with \"cannot tell\" and concern=false.\n"
+        "- concern = true or false only (JSON booleans, not strings).\n"
+        "- evidence_hashes = only full hashes that appear in the notes. Else [].\n"
+        "- evidence_paths = only paths that appear in the notes. Else [].\n"
+        "- next_inspect = 0–3 objects whose hash appears in the notes. Else [].\n"
+        "- Do not invent hashes, paths, people, or facts that are not in the notes.\n"
+        "- Output the JSON object only.\n\n"
+        f"Repo: {pack.get('repo_id') or ''}\n"
+        f"Headline: {headline}\n\n"
+        "Notes:\n"
+        f"{summary}\n\n"
+        f"Checklist ids (use all, this order): {', '.join(ids)}\n\n"
+        "TEMPLATE — replace empty strings and false/[] only. Keep this key set:\n"
+        + json.dumps(_checklist_skeleton(ids), indent=2)
+        + "\n"
+    )
+
+
+def _checklist_skeleton(ids: list[str]) -> dict:
+    return {
+        "purpose": "",
+        "category": "unknown",
+        "headline": "",
+        "executive_summary": "",
+        "checklist": [
+            {
+                "id": cid,
+                "answer": "",
+                "concern": False,
+                "evidence_hashes": [],
+                "evidence_paths": [],
+            }
+            for cid in ids
+            if cid != "next_inspect"
+        ],
+        "next_inspect": [],
+    }
 
 
 def executive_prompt(pack: dict) -> str:

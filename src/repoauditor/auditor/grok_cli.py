@@ -63,8 +63,9 @@ def build_cmd(
     schema: dict | None = None,
     explore: bool = True,
     max_turns: int | None = None,
+    json_schema: bool = True,
+    model: str | None = None,
 ) -> list[str]:
-    schema = schema or AUDITOR_JSON_SCHEMA
     # grok opens --prompt-file relative to --cwd (the scanned repo), not process cwd
     prompt = Path(prompt_file).expanduser().resolve()
     # Fresh session id so a TUI `--resume` of an older live run cannot attach
@@ -73,12 +74,11 @@ def build_cmd(
     turns = max_turns if max_turns is not None else (EXPLORE_MAX_TURNS if explore else EXEC_MAX_TURNS)
     cmd = [
         grok_bin,
+        *(["--model", model] if model else []),
         "--prompt-file",
         str(prompt),
         "--session-id",
         session_id,
-        "--json-schema",
-        json.dumps(schema, separators=(",", ":")),
         "--output-format",
         "json",
         "--system-prompt-override",
@@ -91,6 +91,9 @@ def build_cmd(
         "--yolo",
         "--no-plan",
     ]
+    if json_schema:
+        payload = schema if schema is not None else AUDITOR_JSON_SCHEMA
+        cmd.extend(["--json-schema", json.dumps(payload, separators=(",", ":"))])
     if explore:
         cmd.extend(
             [
@@ -114,40 +117,119 @@ def build_cmd(
 
 
 def parse_headless_json(raw: str) -> dict:
-    """Accept a grok wrapper, raw auditor JSON, or several objects jammed together."""
+    """Accept a grok wrapper, raw auditor JSON, fenced JSON, or plain prose."""
     if not raw or not raw.strip():
         raise ValueError("headless grok produced empty stdout")
+    fenced = _report_from_fences(raw)
+    if fenced:
+        return fenced
     candidates = _iter_json_dicts(raw)
     picked = _pick_report_dict(candidates)
     if picked is None:
+        if _looks_like_prose(raw):
+            return report_from_prose(raw)
         raise ValueError("headless grok JSON had no object")
     if picked.get("type") == "error":
         raise GrokFailed(["grok"], 1, picked.get("message") or raw, raw)
     reason = str(picked.get("stopReason") or picked.get("stop_reason") or "")
+    inner = picked.get("structured_output") or picked.get("text")
     if "max_turn" in reason.lower() or reason.lower() == "max_turns":
-        if not _looks_like_report(picked) and not picked.get("structured_output") and not (
-            isinstance(picked.get("text"), str) and picked.get("text", "").strip().startswith("{")
-        ):
-            raise GrokFailed(["grok"], 1, "max turns reached", raw)
-    if picked.get("structured_output"):
-        out = picked["structured_output"]
-        if isinstance(out, dict):
-            return out
-        if isinstance(out, str):
-            nested = _pick_report_dict(_iter_json_dicts(out))
-            if nested:
-                return nested
-    text = picked.get("text")
-    if isinstance(text, dict):
-        return text
-    if isinstance(text, str) and text.strip():
-        nested = _pick_report_dict(_iter_json_dicts(text))
-        if nested:
-            return nested
-        return _parse_json_object(text)
+        recovered = _coerce_payload(inner)
+        if recovered:
+            return recovered
+        if isinstance(inner, str) and _looks_like_prose(inner):
+            return report_from_prose(inner)
+        raise GrokFailed(["grok"], 1, "max turns reached", raw)
+    recovered = _coerce_payload(picked.get("structured_output"))
+    if recovered:
+        return recovered
+    recovered = _coerce_payload(picked.get("text"))
+    if recovered:
+        return recovered
     if _looks_like_report(picked):
         return picked
+    if _looks_like_prose(raw):
+        return report_from_prose(_plain_text(picked) or raw)
     raise ValueError("headless grok JSON had no structured_output or text")
+
+
+def _coerce_payload(value: object) -> dict | None:
+    if isinstance(value, dict):
+        if _looks_like_report(value):
+            return value
+        nested = _pick_report_dict(_iter_json_dicts(json.dumps(value)))
+        if nested and _looks_like_report(nested):
+            return nested
+        return None
+    if not isinstance(value, str) or not value.strip():
+        return None
+    fenced = _report_from_fences(value)
+    if fenced:
+        return fenced
+    nested = _pick_report_dict(_iter_json_dicts(value))
+    if nested and _looks_like_report(nested):
+        return nested
+    if _looks_like_prose(value):
+        return report_from_prose(value)
+    return None
+
+
+def _plain_text(picked: dict) -> str:
+    text = picked.get("text")
+    if isinstance(text, str):
+        return text
+    thought = picked.get("thought")
+    if isinstance(thought, str):
+        return thought
+    return ""
+
+
+def _looks_like_prose(text: str) -> bool:
+    body = text.strip()
+    if len(body) < 80:
+        return False
+    return "\n" in body or len(body) >= 120
+
+
+def report_from_prose(text: str) -> dict:
+    """Local models often cannot emit the auditor schema. Keep the write-up."""
+    body = text.strip()
+    if body.startswith("```"):
+        body = body.strip("`")
+        if body.lower().startswith("markdown"):
+            body = body[8:].strip()
+        elif body.lower().startswith("text"):
+            body = body[4:].strip()
+    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    headline = lines[0][:240] if lines else ""
+    return {
+        "purpose": "",
+        "category": "unknown",
+        "headline": headline,
+        "executive_summary": body,
+        "checklist": [],
+        "next_inspect": [],
+    }
+
+
+def _report_from_fences(text: str) -> dict | None:
+    opener = "```"
+    start = 0
+    while True:
+        begin = text.find(opener, start)
+        if begin < 0:
+            return None
+        after = text.find("\n", begin)
+        if after < 0:
+            return None
+        end = text.find(opener, after)
+        if end < 0:
+            return None
+        block = text[after + 1 : end].strip()
+        nested = _pick_report_dict(_iter_json_dicts(block))
+        if nested and _looks_like_report(nested):
+            return nested
+        start = end + 3
 
 
 def _iter_json_dicts(text: str) -> list[dict]:
@@ -189,19 +271,6 @@ def _pick_report_dict(candidates: list[dict]) -> dict | None:
     return candidates[-1]
 
 
-def _parse_json_object(text: str) -> dict:
-    text = text.strip()
-    if text.startswith("```"):
-        text = text.strip("`")
-        if text.startswith("json"):
-            text = text[4:]
-        text = text.strip()
-    picked = _pick_report_dict(_iter_json_dicts(text))
-    if picked:
-        return picked
-    raise ValueError("could not parse JSON object from grok text")
-
-
 def run_headless(
     prompt_file: Path,
     system_prompt: str,
@@ -213,6 +282,8 @@ def run_headless(
     schema: dict | None = None,
     explore: bool = True,
     max_turns: int | None = None,
+    json_schema: bool = True,
+    model: str | None = None,
 ) -> dict:
     binary = find_grok(grok_bin)
     cmd = build_cmd(
@@ -223,6 +294,8 @@ def run_headless(
         schema=schema,
         explore=explore,
         max_turns=max_turns,
+        json_schema=json_schema,
+        model=model,
     )
     run = runner or subprocess.run
     limit = timeout or 90
@@ -246,8 +319,11 @@ def run_headless(
     stdout = result.stdout or ""
     stderr = result.stderr or ""
     if result.returncode != 0:
-        _stash_output(prompt_file, stdout, stderr)
-        raise GrokFailed(cmd, result.returncode, stderr, stdout)
+        try:
+            return parse_headless_json(stdout)
+        except (ValueError, json.JSONDecodeError, GrokFailed):
+            _stash_output(prompt_file, stdout, stderr)
+            raise GrokFailed(cmd, result.returncode, stderr, stdout)
     try:
         return parse_headless_json(stdout)
     except (ValueError, json.JSONDecodeError) as exc:

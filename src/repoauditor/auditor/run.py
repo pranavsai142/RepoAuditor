@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 from typing import Any, Callable
 
 from repoauditor.auditor.grok_cli import ANALYZE_TIMEOUT, EXPLORE_MAX_TURNS, GrokFailed, run_headless
 from repoauditor.auditor.pack import _safe_name, brief_for_grok, build_department_pack, build_repo_pack
-from repoauditor.auditor.prompt import SYSTEM_PROMPT, user_prompt
+from repoauditor.auditor.prompt import SCORER_SYSTEM_PROMPT, SYSTEM_PROMPT, scorer_followup_prompt, user_prompt
 from repoauditor.auditor.substance import score_repo
 from repoauditor.auditor.validate import validate_report
 from repoauditor.persist import read_json, read_jsonl, scan_paths, write_json
@@ -81,6 +82,8 @@ def cmd_analyze(
     runner: Callable[..., Any] | None = None,
     timeout: int = ANALYZE_TIMEOUT,
     max_turns: int = EXPLORE_MAX_TURNS,
+    json_schema: bool = True,
+    model: str | None = None,
 ) -> list[dict]:
     paths = scan_paths(out_dir)
     if not paths["packs"].exists() or not any(paths["packs"].glob("*.json")):
@@ -103,6 +106,7 @@ def cmd_analyze(
             user_prompt(pack, pack_path, brief_path=brief_path),
             encoding="utf-8",
         )
+        dest = analysis_dir / f"{pack_path.stem}.json"
         try:
             raw = run_headless(
                 prompt_path,
@@ -114,10 +118,25 @@ def cmd_analyze(
                 max_turns=max_turns or EXPLORE_MAX_TURNS,
                 schema=None,
                 explore=True,
+                json_schema=json_schema,
+                model=model,
             )
             validated = validate_report(raw, pack)
+            if _needs_checklist(validated):
+                scored = _score_followup(
+                    analysis_dir / f"{pack_path.stem}.score.md",
+                    validated,
+                    pack,
+                    grok_bin=grok_bin,
+                    runner=runner,
+                    timeout=timeout or ANALYZE_TIMEOUT,
+                    json_schema=json_schema,
+                    model=model,
+                )
+                if scored:
+                    validated = _merge_scored(validated, scored, pack)
         except Exception as exc:
-            validated = {
+            stub = {
                 "repo_id": pack.get("repo_id"),
                 "purpose": "",
                 "category": "unknown",
@@ -128,10 +147,81 @@ def cmd_analyze(
                 "stripped_unknown_hashes": [],
                 "analyze_error": _short_analyze_error(exc),
             }
-        write_json(analysis_dir / f"{pack_path.stem}.json", validated)
+            validated = _keep_prior_report(dest, stub)
+        write_json(dest, validated)
         reports.append(validated)
     write_json(paths["analysis_index"], reports)
     return reports
+
+
+def _needs_checklist(report: dict) -> bool:
+    return not any((item.get("answer") or "").strip() for item in report.get("checklist") or [])
+
+
+def _score_followup(
+    prompt_path: Path,
+    report: dict,
+    pack: dict,
+    *,
+    grok_bin: str | None,
+    runner: Callable[..., Any] | None,
+    timeout: int,
+    json_schema: bool,
+    model: str | None,
+) -> dict | None:
+    prompt_path.write_text(scorer_followup_prompt(report, pack), encoding="utf-8")
+    try:
+        raw = run_headless(
+            prompt_path,
+            SCORER_SYSTEM_PROMPT,
+            Path(pack["path"]),
+            grok_bin=grok_bin,
+            runner=runner,
+            timeout=timeout,
+            max_turns=8,
+            schema=None,
+            explore=False,
+            json_schema=json_schema,
+            model=model,
+        )
+    except Exception:
+        return None
+    if _needs_checklist(raw if isinstance(raw, dict) else {}):
+        return None
+    return raw
+
+
+def _merge_scored(base: dict, extra: dict, pack: dict) -> dict:
+    scored = validate_report(extra, pack)
+    if scored.get("checklist"):
+        base["checklist"] = scored["checklist"]
+    if scored.get("next_inspect"):
+        base["next_inspect"] = scored["next_inspect"]
+    if scored.get("purpose") and not base.get("purpose"):
+        base["purpose"] = scored["purpose"]
+    if scored.get("category") and scored.get("category") != "unknown":
+        base["category"] = scored["category"]
+    if scored.get("headline") and not base.get("headline"):
+        base["headline"] = scored["headline"]
+    return base
+
+
+def _is_keeper(report: dict) -> bool:
+    if report.get("executive_summary"):
+        return True
+    return any((item.get("answer") or "").strip() for item in report.get("checklist") or [])
+
+
+def _keep_prior_report(dest: Path, stub: dict) -> dict:
+    if not dest.exists():
+        return stub
+    try:
+        prior = read_json(dest)
+    except (OSError, json.JSONDecodeError, ValueError):
+        return stub
+    if not isinstance(prior, dict) or not _is_keeper(prior):
+        return stub
+    return prior
 
 
 def _short_analyze_error(exc: BaseException) -> str:

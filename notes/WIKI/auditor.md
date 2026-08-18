@@ -24,6 +24,8 @@ Same three stages on every repo. The prompt is a **catalog** (paths + counts). T
 
 Blocked: `write`, `search_replace` (do not edit the evidence). Web is off. Everything else stays, including `read_file`, `grep`, `list_dir`, `Agent`, and shell for `git show` of pack hashes. `--max-turns 512` (each parent tool call is a turn; `--timeout` default 86400s is only wall clock). The prompt lists file paths; Grok (or you) open them.
 
+Local models that cannot emit schema JSON: `analyze --no-json-schema`. Prose is kept as the executive summary. If the first pass has no checklist, a second one-shot scorer asks only for the JSON tags. Or point analyze at a JSON-capable model: `analyze --model grok-build`. A failed parse does not overwrite a prior finished report.
+
 ## Pack
 
 On disk at `analysis/packs/<repo>.json`: rolled metrics, HEAD kinds, README excerpt, workflow/source samples, recent commits + patches + substance, flags, **all** allowed hashes, checklist.

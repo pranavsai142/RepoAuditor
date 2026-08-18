@@ -6,9 +6,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from repoauditor.auditor.grok_cli import build_cmd, parse_headless_json
-from repoauditor.auditor.prompt import SYSTEM_PROMPT, load_checklist, user_prompt
+from repoauditor.auditor.prompt import SYSTEM_PROMPT, load_checklist, scorer_followup_prompt, user_prompt
 from repoauditor.auditor.pack import brief_for_grok
-from repoauditor.auditor.run import cmd_analyze, cmd_pack
+from repoauditor.auditor.run import _keep_prior_report, cmd_analyze, cmd_pack
 from repoauditor.auditor.validate import validate_report
 from repoauditor.pipeline import cmd_scan
 from tests.fixtures import spec
@@ -31,7 +31,7 @@ def test_checklist_is_a_background_check() -> None:
     assert "Mapper" in SYSTEM_PROMPT
     assert "Investigator" in SYSTEM_PROMPT
     assert "Scorer" in SYSTEM_PROMPT
-    assert "JSON only" in SYSTEM_PROMPT
+    assert "JSON" in SYSTEM_PROMPT
     assert "catalog" in SYSTEM_PROMPT.lower()
     assert "2–4" not in SYSTEM_PROMPT
     assert "one line" not in SYSTEM_PROMPT
@@ -118,6 +118,14 @@ def test_headless_grok_command_shape(tmp_path: Path, monkeypatch) -> None:
     assert cmd[cmd.index("--cwd") + 1] == str(repo)
     assert "--json-schema" in cmd
     assert "--output-format" in cmd
+    bare = build_cmd(
+        grok_bin="/opt/grok",
+        prompt_file=relative,
+        system_prompt="sys",
+        cwd=repo,
+        json_schema=False,
+    )
+    assert "--json-schema" not in bare
     assert "--system-prompt-override" in cmd
     assert "--max-turns" in cmd
     assert cmd[cmd.index("--max-turns") + 1] == "512"
@@ -129,6 +137,14 @@ def test_headless_grok_command_shape(tmp_path: Path, monkeypatch) -> None:
         max_turns=64,
     )
     assert cmd64[cmd64.index("--max-turns") + 1] == "64"
+    named = build_cmd(
+        grok_bin="/opt/grok",
+        prompt_file=relative,
+        system_prompt="sys",
+        cwd=repo,
+        model="muse-glimmer",
+    )
+    assert named[named.index("--model") + 1] == "muse-glimmer"
     denied = cmd[cmd.index("--disallowed-tools") + 1]
     assert "write" in denied
     assert "search_replace" in denied
@@ -171,7 +187,24 @@ def test_user_prompt_is_a_catalog(tmp_path: Path) -> None:
     assert hashes[10] not in text
     assert "diff xxx" not in text
     assert "f199.py" not in text
-    assert len(text) < 4000
+    assert "JSON shape" in text
+    assert len(text) < 8000
+
+
+def test_scorer_followup_is_fill_in_only() -> None:
+    text = scorer_followup_prompt(
+        {
+            "headline": "ASGS scripts still run",
+            "executive_summary": "A coastal postprocess fork. Hash abcdef is cited.",
+        },
+        {"repo_id": "lab", "checklist": [{"id": "purpose"}, {"id": "padding"}]},
+    )
+    assert text.startswith("ONLY fill the JSON template")
+    assert "Output the JSON object only" in text
+    assert "copy the Notes block" in text
+    assert "ASGS scripts still run" in text
+    assert '"id": "purpose"' in text
+    assert '"id": "padding"' in text
 
 
 def test_brief_for_grok_drops_full_hash_dump() -> None:
@@ -206,6 +239,25 @@ def test_parse_headless_json_max_turns_without_report() -> None:
         raise AssertionError("expected GrokFailed")
 
 
+def test_parse_headless_json_prose_envelope() -> None:
+    body = (
+        "This checkout is a bag of coastal scripts, not a service.\n\n"
+        "The README is still the StormSurgeLive operator card.\n"
+    )
+    parsed = parse_headless_json(json.dumps({"text": body, "stopReason": "end_turn"}))
+    assert "coastal scripts" in parsed["executive_summary"]
+    assert parsed["headline"].startswith("This checkout")
+    parsed2 = parse_headless_json(body)
+    assert "StormSurgeLive" in parsed2["executive_summary"]
+
+
+def test_parse_headless_json_fenced_report() -> None:
+    payload = {"purpose": "lab", "category": "script", "checklist": [], "next_inspect": []}
+    blob = "Here you go:\n```json\n" + json.dumps(payload) + "\n```\n"
+    parsed = parse_headless_json(json.dumps({"text": blob}))
+    assert parsed["purpose"] == "lab"
+
+
 def test_parse_headless_json_text() -> None:
     payload = {"purpose": "docs husk", "category": "husk", "checklist": [], "next_inspect": []}
     parsed = parse_headless_json(json.dumps({"text": json.dumps(payload)}))
@@ -223,6 +275,83 @@ def test_parse_headless_json_ignores_extra_objects() -> None:
     two_wrappers = json.dumps({"text": "{}"}) + "\n" + json.dumps({"structured_output": payload})
     parsed2 = parse_headless_json(two_wrappers)
     assert parsed2["category"] == "service"
+
+
+def test_keep_prior_report_on_failed_parse(tmp_path: Path) -> None:
+    dest = tmp_path / "repo.json"
+    keeper = {
+        "repo_id": "x",
+        "headline": "kept",
+        "executive_summary": "this write-up stays",
+        "checklist": [{"id": "purpose", "answer": "lab", "concern": False}],
+    }
+    dest.write_text(json.dumps(keeper), encoding="utf-8")
+    stub = {
+        "repo_id": "x",
+        "headline": "",
+        "executive_summary": "",
+        "checklist": [],
+        "analyze_error": "could not parse JSON object from grok text",
+    }
+    kept = _keep_prior_report(dest, stub)
+    assert kept["executive_summary"] == "this write-up stays"
+    assert kept["headline"] == "kept"
+    empty = tmp_path / "missing.json"
+    assert _keep_prior_report(empty, stub)["analyze_error"]
+
+
+def test_analyze_followup_fills_checklist(tmp_path: Path) -> None:
+    from repoauditor.auditor.prompt import load_checklist
+    from repoauditor.persist import write_json
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    out = tmp_path / "scan"
+    packs = out / "analysis" / "packs"
+    packs.mkdir(parents=True)
+    write_json(
+        packs / "lab.json",
+        {
+            "repo_id": "lab",
+            "path": str(repo),
+            "allowed_hashes": ["abc"],
+            "checklist": load_checklist(),
+        },
+    )
+    calls = {"n": 0}
+
+    def fake_run(cmd, **_kwargs):
+        calls["n"] += 1
+        prompt = Path(cmd[cmd.index("--prompt-file") + 1])
+        if prompt.name.endswith(".score.md"):
+            report = {
+                "purpose": "lab notes",
+                "category": "docs",
+                "headline": "from scorer",
+                "executive_summary": "",
+                "checklist": [
+                    {
+                        "id": "purpose",
+                        "answer": "notes only",
+                        "concern": True,
+                        "evidence_hashes": [],
+                        "evidence_paths": ["README.md"],
+                    }
+                ],
+                "next_inspect": [],
+            }
+            return SimpleNamespace(returncode=0, stdout=json.dumps({"text": json.dumps(report)}), stderr="")
+        prose = (
+            "This checkout is a lab notebook of coastal plots.\n\n"
+            "The tree still has generateGraphs.py and a leftover README.\n"
+        )
+        return SimpleNamespace(returncode=0, stdout=json.dumps({"text": prose}), stderr="")
+
+    reports = cmd_analyze(out, grok_bin="grok", runner=fake_run, json_schema=False)
+    assert calls["n"] == 2
+    assert reports[0]["executive_summary"].startswith("This checkout")
+    assert reports[0]["checklist"][0]["id"] == "purpose"
+    assert reports[0]["checklist"][0]["answer"] == "notes only"
 
 
 def test_analyze_uses_injected_runner(department: Path, tmp_path: Path, as_of: date) -> None:
