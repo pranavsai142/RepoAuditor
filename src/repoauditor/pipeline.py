@@ -114,6 +114,8 @@ def cmd_scan(
     *,
     analyze: bool = False,
     grok_bin: str | None = None,
+    timeout: int = 3600,
+    max_turns: int = 48,
 ) -> dict:
     extract_info = cmd_extract(input_dir, out_dir)
     cmd_assimilate(out_dir)
@@ -125,7 +127,7 @@ def cmd_scan(
     analysis: list[dict] = []
     report = _write_report(out_dir, as_of, analysis)
     if analyze:
-        analysis = cmd_analyze(out_dir, grok_bin=grok_bin)
+        analysis = cmd_analyze(out_dir, grok_bin=grok_bin, timeout=timeout, max_turns=max_turns)
         report = _write_report(out_dir, as_of, analysis)
     return {
         **extract_info,

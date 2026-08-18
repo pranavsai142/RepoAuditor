@@ -79,7 +79,8 @@ def cmd_analyze(
     *,
     grok_bin: str | None = None,
     runner: Callable[..., Any] | None = None,
-    timeout: int = 900,
+    timeout: int = 3600,
+    max_turns: int = 48,
 ) -> list[dict]:
     paths = scan_paths(out_dir)
     if not paths["packs"].exists() or not any(paths["packs"].glob("*.json")):
@@ -109,7 +110,8 @@ def cmd_analyze(
                 Path(pack["path"]),
                 grok_bin=grok_bin,
                 runner=runner,
-                timeout=timeout or 900,
+                timeout=timeout or 3600,
+                max_turns=max_turns or 48,
                 schema=None,
                 explore=True,
             )
@@ -136,8 +138,11 @@ def _short_analyze_error(exc: BaseException) -> str:
     if isinstance(exc, GrokFailed) and "timed out" in (exc.stderr or ""):
         return exc.stderr.strip()[:200]
     text = str(exc)
+    lowered = text.lower()
+    if "max turn" in lowered or "max_turns" in lowered:
+        return "Analyze hit --max-turns (each tool call is a turn). Timeout does not add turns. Retry with --max-turns 64 or higher."
     if "timed out" in text:
-        return "Analyze timed out. Inspector ran too long; retry or raise timeout."
+        return "Analyze timed out. Inspector ran too long; retry or raise --timeout."
     if text.startswith("Command '"):
         return "Analyze failed (grok exited). See analysis/reports/*.stderr.txt."
     return text[:400]

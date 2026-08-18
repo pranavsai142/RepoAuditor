@@ -52,6 +52,18 @@ def main(argv: list[str] | None = None) -> int:
         help="skip Grok (tests/harness only). Product scan always analyzes.",
     )
     p_scan.add_argument("--grok-bin", default=None)
+    p_scan.add_argument(
+        "--timeout",
+        type=int,
+        default=3600,
+        help="seconds to wait for each grok process (wall clock, not turns)",
+    )
+    p_scan.add_argument(
+        "--max-turns",
+        type=int,
+        default=48,
+        help="grok --max-turns per repo (each tool call counts; default 48)",
+    )
 
     p_pack = sub.add_parser("pack", help="write auditor evidence packs from a scan")
     p_pack.add_argument("scan")
@@ -60,6 +72,18 @@ def main(argv: list[str] | None = None) -> int:
     p_an.add_argument("scan")
     p_an.add_argument("--as-of", default=None)
     p_an.add_argument("--grok-bin", default=None)
+    p_an.add_argument(
+        "--timeout",
+        type=int,
+        default=3600,
+        help="seconds to wait for each grok process (wall clock, not turns)",
+    )
+    p_an.add_argument(
+        "--max-turns",
+        type=int,
+        default=48,
+        help="grok --max-turns per repo (each tool call counts; default 48)",
+    )
 
     args = parser.parse_args(argv)
     if args.cmd == "discover":
@@ -83,6 +107,8 @@ def main(argv: list[str] | None = None) -> int:
                     parse_as_of_arg(args.as_of),
                     analyze=not args.no_analyze,
                     grok_bin=args.grok_bin,
+                    timeout=args.timeout,
+                    max_turns=args.max_turns,
                 ),
                 indent=2,
             )
@@ -94,7 +120,12 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.cmd == "analyze":
         out = Path(args.scan)
-        reports = cmd_analyze(out, grok_bin=args.grok_bin)
+        reports = cmd_analyze(
+            out,
+            grok_bin=args.grok_bin,
+            timeout=args.timeout,
+            max_turns=args.max_turns,
+        )
         _write_report(out, parse_as_of_arg(args.as_of), reports)
         print(json.dumps({"analyzed": len(reports)}, indent=2))
         return 0

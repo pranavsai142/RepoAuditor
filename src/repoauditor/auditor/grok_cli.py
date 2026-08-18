@@ -13,8 +13,9 @@ from typing import Callable
 from repoauditor.auditor.schema import AUDITOR_JSON_SCHEMA
 
 # Investigate the repo. Only block mutations. Web is off via --disable-web-search.
-EXPLORE_MAX_TURNS = "16"
-EXEC_MAX_TURNS = "1"
+# Each parent tool call is a turn. Mapper + investigator + scorer need more than 16.
+EXPLORE_MAX_TURNS = 48
+EXEC_MAX_TURNS = 1
 DISALLOWED_TOOLS = "search_replace,write"
 EXEC_DISALLOWED_TOOLS = "search_replace,write,Agent"
 
@@ -60,6 +61,7 @@ def build_cmd(
     cwd: Path,
     schema: dict | None = None,
     explore: bool = True,
+    max_turns: int | None = None,
 ) -> list[str]:
     schema = schema or AUDITOR_JSON_SCHEMA
     # grok opens --prompt-file relative to --cwd (the scanned repo), not process cwd
@@ -67,6 +69,7 @@ def build_cmd(
     # Fresh session id so a TUI `--resume` of an older live run cannot attach
     # to this process (sessions are grouped by --cwd).
     session_id = str(uuid.uuid4())
+    turns = max_turns if max_turns is not None else (EXPLORE_MAX_TURNS if explore else EXEC_MAX_TURNS)
     cmd = [
         grok_bin,
         "--prompt-file",
@@ -93,7 +96,7 @@ def build_cmd(
                 "--disallowed-tools",
                 DISALLOWED_TOOLS,
                 "--max-turns",
-                EXPLORE_MAX_TURNS,
+                str(turns),
             ]
         )
     else:
@@ -102,7 +105,7 @@ def build_cmd(
                 "--disallowed-tools",
                 EXEC_DISALLOWED_TOOLS,
                 "--max-turns",
-                EXEC_MAX_TURNS,
+                str(turns),
                 "--no-subagents",
             ]
         )
@@ -119,6 +122,12 @@ def parse_headless_json(raw: str) -> dict:
         raise ValueError("headless grok JSON had no object")
     if picked.get("type") == "error":
         raise GrokFailed(["grok"], 1, picked.get("message") or raw, raw)
+    reason = str(picked.get("stopReason") or picked.get("stop_reason") or "")
+    if "max_turn" in reason.lower() or reason.lower() == "max_turns":
+        if not _looks_like_report(picked) and not picked.get("structured_output") and not (
+            isinstance(picked.get("text"), str) and picked.get("text", "").strip().startswith("{")
+        ):
+            raise GrokFailed(["grok"], 1, "max turns reached", raw)
     if picked.get("structured_output"):
         out = picked["structured_output"]
         if isinstance(out, dict):
@@ -202,6 +211,7 @@ def run_headless(
     timeout: int = 90,
     schema: dict | None = None,
     explore: bool = True,
+    max_turns: int | None = None,
 ) -> dict:
     binary = find_grok(grok_bin)
     cmd = build_cmd(
@@ -211,6 +221,7 @@ def run_headless(
         cwd=cwd,
         schema=schema,
         explore=explore,
+        max_turns=max_turns,
     )
     run = runner or subprocess.run
     limit = timeout or 90

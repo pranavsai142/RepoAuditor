@@ -120,7 +120,15 @@ def test_headless_grok_command_shape(tmp_path: Path, monkeypatch) -> None:
     assert "--output-format" in cmd
     assert "--system-prompt-override" in cmd
     assert "--max-turns" in cmd
-    assert cmd[cmd.index("--max-turns") + 1] == "16"
+    assert cmd[cmd.index("--max-turns") + 1] == "48"
+    cmd64 = build_cmd(
+        grok_bin="/opt/grok",
+        prompt_file=relative,
+        system_prompt="sys",
+        cwd=repo,
+        max_turns=64,
+    )
+    assert cmd64[cmd64.index("--max-turns") + 1] == "64"
     denied = cmd[cmd.index("--disallowed-tools") + 1]
     assert "write" in denied
     assert "search_replace" in denied
@@ -184,6 +192,18 @@ def test_brief_for_grok_drops_full_hash_dump() -> None:
     assert len(brief["allowed_hashes"]) <= 40
     assert "abc" in brief["allowed_hashes"]
     assert len(brief["recent_commits"][0]["patch_excerpt"]) == 1200
+
+
+def test_parse_headless_json_max_turns_without_report() -> None:
+    from repoauditor.auditor.grok_cli import GrokFailed
+
+    jammed = json.dumps({"stopReason": "max_turns", "text": "still mapping"})
+    try:
+        parse_headless_json(jammed)
+    except GrokFailed as exc:
+        assert "max turns" in (exc.stderr or "").lower()
+    else:
+        raise AssertionError("expected GrokFailed")
 
 
 def test_parse_headless_json_text() -> None:
