@@ -18,7 +18,12 @@ EXPLORE_MAX_TURNS = 512
 EXEC_MAX_TURNS = 1
 ANALYZE_TIMEOUT = 86400
 DISALLOWED_TOOLS = "search_replace,write"
+DISALLOWED_TOOLS_SOLO = "search_replace,write,Agent"
 EXEC_DISALLOWED_TOOLS = "search_replace,write,Agent"
+# Keep the tool-schema dump small. This is most of a cold prefill besides cwd skills.
+INVESTIGATE_TOOLS = "read_file,grep,list_dir,run_terminal_cmd"
+INVESTIGATE_TOOLS_KIDS = "read_file,grep,list_dir,run_terminal_cmd,Agent"
+SCORE_TOOLS = "read_file"
 
 
 class GrokNotFound(RuntimeError):
@@ -63,8 +68,9 @@ def build_cmd(
     schema: dict | None = None,
     explore: bool = True,
     max_turns: int | None = None,
-    json_schema: bool = True,
+    json_schema: bool = False,
     model: str | None = None,
+    subagents: bool = False,
 ) -> list[str]:
     # grok opens --prompt-file relative to --cwd (the scanned repo), not process cwd
     prompt = Path(prompt_file).expanduser().resolve()
@@ -90,19 +96,35 @@ def build_cmd(
         "--verbatim",
         "--yolo",
         "--no-plan",
+        "--no-memory",
     ]
+    if explore:
+        cmd.extend(["--tools", INVESTIGATE_TOOLS_KIDS if subagents else INVESTIGATE_TOOLS])
+    else:
+        cmd.extend(["--tools", SCORE_TOOLS])
     if json_schema:
         payload = schema if schema is not None else AUDITOR_JSON_SCHEMA
         cmd.extend(["--json-schema", json.dumps(payload, separators=(",", ":"))])
     if explore:
-        cmd.extend(
-            [
-                "--disallowed-tools",
-                DISALLOWED_TOOLS,
-                "--max-turns",
-                str(turns),
-            ]
-        )
+        if subagents:
+            cmd.extend(
+                [
+                    "--disallowed-tools",
+                    DISALLOWED_TOOLS,
+                    "--max-turns",
+                    str(turns),
+                ]
+            )
+        else:
+            cmd.extend(
+                [
+                    "--disallowed-tools",
+                    DISALLOWED_TOOLS_SOLO,
+                    "--max-turns",
+                    str(turns),
+                    "--no-subagents",
+                ]
+            )
     else:
         cmd.extend(
             [
@@ -282,8 +304,9 @@ def run_headless(
     schema: dict | None = None,
     explore: bool = True,
     max_turns: int | None = None,
-    json_schema: bool = True,
+    json_schema: bool = False,
     model: str | None = None,
+    subagents: bool = False,
 ) -> dict:
     binary = find_grok(grok_bin)
     cmd = build_cmd(
@@ -296,9 +319,15 @@ def run_headless(
         max_turns=max_turns,
         json_schema=json_schema,
         model=model,
+        subagents=subagents,
     )
     run = runner or subprocess.run
     limit = timeout or 90
+    env = os.environ.copy()
+    env.setdefault("GROK_CLAUDE_SKILLS_ENABLED", "false")
+    env.setdefault("GROK_CURSOR_SKILLS_ENABLED", "false")
+    if not subagents:
+        env["GROK_SUBAGENTS"] = "0"
     try:
         result = run(
             cmd,
@@ -306,6 +335,7 @@ def run_headless(
             capture_output=True,
             text=True,
             timeout=limit,
+            env=env,
         )
     except subprocess.TimeoutExpired as exc:
         stdout = exc.stdout or ""

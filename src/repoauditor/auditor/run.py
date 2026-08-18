@@ -9,7 +9,13 @@ from typing import Any, Callable
 
 from repoauditor.auditor.grok_cli import ANALYZE_TIMEOUT, EXPLORE_MAX_TURNS, GrokFailed, run_headless
 from repoauditor.auditor.pack import _safe_name, brief_for_grok, build_department_pack, build_repo_pack
-from repoauditor.auditor.prompt import SCORER_SYSTEM_PROMPT, SYSTEM_PROMPT, scorer_followup_prompt, user_prompt
+from repoauditor.auditor.prompt import (
+    SCORER_SYSTEM_PROMPT,
+    SYSTEM_PROMPT,
+    SYSTEM_PROMPT_SUBAGENTS,
+    scorer_followup_prompt,
+    user_prompt,
+)
 from repoauditor.auditor.substance import score_repo
 from repoauditor.auditor.validate import validate_report
 from repoauditor.persist import read_json, read_jsonl, scan_paths, write_json
@@ -82,8 +88,9 @@ def cmd_analyze(
     runner: Callable[..., Any] | None = None,
     timeout: int = ANALYZE_TIMEOUT,
     max_turns: int = EXPLORE_MAX_TURNS,
-    json_schema: bool = True,
+    json_schema: bool = False,
     model: str | None = None,
+    subagents: bool = False,
 ) -> list[dict]:
     paths = scan_paths(out_dir)
     if not paths["packs"].exists() or not any(paths["packs"].glob("*.json")):
@@ -110,7 +117,7 @@ def cmd_analyze(
         try:
             raw = run_headless(
                 prompt_path,
-                SYSTEM_PROMPT,
+                SYSTEM_PROMPT_SUBAGENTS if subagents else SYSTEM_PROMPT,
                 Path(pack["path"]),
                 grok_bin=grok_bin,
                 runner=runner,
@@ -120,6 +127,7 @@ def cmd_analyze(
                 explore=True,
                 json_schema=json_schema,
                 model=model,
+                subagents=subagents,
             )
             validated = validate_report(raw, pack)
             if _needs_checklist(validated):

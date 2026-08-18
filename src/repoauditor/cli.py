@@ -66,14 +66,24 @@ def main(argv: list[str] | None = None) -> int:
         help="grok --max-turns per repo (each tool call counts; default 512)",
     )
     p_scan.add_argument(
+        "--json-schema",
+        action="store_true",
+        help="pass grok --json-schema (off by default; large cold prompt)",
+    )
+    p_scan.add_argument(
         "--no-json-schema",
         action="store_true",
-        help="do not pass --json-schema (local models that only write prose)",
+        help="ignored; schema is off unless --json-schema",
     )
     p_scan.add_argument(
         "--model",
         default=None,
         help="grok --model for analyze (use a JSON-capable model if the local one cannot)",
+    )
+    p_scan.add_argument(
+        "--subagents",
+        action="store_true",
+        help="allow mapper/investigator child agents (cloud only; fights a local GPU)",
     )
 
     p_pack = sub.add_parser("pack", help="write auditor evidence packs from a scan")
@@ -96,14 +106,24 @@ def main(argv: list[str] | None = None) -> int:
         help="grok --max-turns per repo (each tool call counts; default 512)",
     )
     p_an.add_argument(
+        "--json-schema",
+        action="store_true",
+        help="pass grok --json-schema (off by default; large cold prompt)",
+    )
+    p_an.add_argument(
         "--no-json-schema",
         action="store_true",
-        help="do not pass --json-schema (local models that only write prose)",
+        help="ignored; schema is off unless --json-schema",
     )
     p_an.add_argument(
         "--model",
         default=None,
         help="grok --model for analyze (use a JSON-capable model if the local one cannot)",
+    )
+    p_an.add_argument(
+        "--subagents",
+        action="store_true",
+        help="allow mapper/investigator child agents (cloud only; fights a local GPU)",
     )
 
     args = parser.parse_args(argv)
@@ -130,8 +150,9 @@ def main(argv: list[str] | None = None) -> int:
                     grok_bin=args.grok_bin,
                     timeout=args.timeout,
                     max_turns=args.max_turns,
-                    json_schema=not args.no_json_schema,
+                    json_schema=args.json_schema,
                     model=args.model,
+                    subagents=args.subagents,
                 ),
                 indent=2,
             )
@@ -148,8 +169,9 @@ def main(argv: list[str] | None = None) -> int:
             grok_bin=args.grok_bin,
             timeout=args.timeout,
             max_turns=args.max_turns,
-            json_schema=not args.no_json_schema,
+            json_schema=args.json_schema,
             model=args.model,
+            subagents=args.subagents,
         )
         _write_report(out, parse_as_of_arg(args.as_of), reports)
         print(json.dumps({"analyzed": len(reports)}, indent=2))

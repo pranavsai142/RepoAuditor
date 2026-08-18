@@ -15,16 +15,20 @@ Requires the `grok` CLI on PATH (or `GROK_BIN`). Auth: existing Grok login or `X
 
 ## Operating protocol (targeted investigation)
 
-Same three stages on every repo. The prompt is a **catalog** (paths + counts). The pack and slim brief stay on disk. The tree is cwd. Context is ~200k — do not dump thousands of commits into the prompt.
+Same stages on every repo. The prompt is a **catalog** (paths + counts). The pack and slim brief stay on disk. The tree is cwd. Harness blocks `write`, `search_replace`, and (by default) `Agent` — the prompt does not restate that.
 
 1. **Mapper** (`explore`, read-only) — list HEAD, read README, sample real source. Inform: purpose, category, head_substance, readme_match.
 2. **Investigator** (`explore`, read-only, fed the mapper notes) — follow flags and hunches. Do not stop at the README. Inform: commit_substance, wip, bots, padding, occupancy, AI.
 3. **Scorer** (parent) — assign every scored tag +1 / 0 / −1. Cut through the veil.
 4. **Summary** (parent, last) — headline + executive_summary from the scored tags, flags, and anomalies. JSON only.
 
-Blocked: `write`, `search_replace` (do not edit the evidence). Web is off. Everything else stays, including `read_file`, `grep`, `list_dir`, `Agent`, and shell for `git show` of pack hashes. `--max-turns 512` (each parent tool call is a turn; `--timeout` default 86400s is only wall clock). The prompt lists file paths; Grok (or you) open them.
+Default: **no subagents**. Mapper and investigator run on the parent, one at a time (`--no-subagents`, `Agent` blocked). Local Ollama cannot serve two inferences without evicting the KV cache. Pass `--subagents` only on cloud Grok.
 
-Local models that cannot emit schema JSON: `analyze --no-json-schema`. Prose is kept as the executive summary. If the first pass has no checklist, a second one-shot scorer asks only for the JSON tags. Or point analyze at a JSON-capable model: `analyze --model grok-build`. A failed parse does not overwrite a prior finished report.
+Blocked: `write`, `search_replace` (do not edit the evidence). Web is off. `--max-turns 512` (each parent tool call is a turn; `--timeout` default 86400s is only wall clock). The prompt lists file paths; Grok (or you) open them.
+
+The first inspect call must produce the written summary **and** the checklist JSON. A fill-in follow-up runs only if that JSON is missing; it is not the plan.
+
+Cold prompt is kept small: `--tools` allowlist, `--no-memory`, no `--json-schema` unless you pass `--json-schema`, vendor skill env off. Pack/brief stay on disk. A failed parse does not overwrite a prior finished report.
 
 ## Pack
 

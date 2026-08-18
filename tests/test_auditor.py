@@ -27,21 +27,18 @@ def test_checklist_is_a_background_check() -> None:
     gvb = next(item for item in items if item["id"] == "greenfield_vs_buy")
     assert "enterprise software" in gvb["question"]
     assert "Do not name vendors" in gvb["question"]
-    assert "OPERATING PROTOCOL" in SYSTEM_PROMPT
     assert "Mapper" in SYSTEM_PROMPT
     assert "Investigator" in SYSTEM_PROMPT
     assert "Scorer" in SYSTEM_PROMPT
     assert "JSON" in SYSTEM_PROMPT
     assert "catalog" in SYSTEM_PROMPT.lower()
+    assert "spawn" not in SYSTEM_PROMPT.lower()
     assert "2–4" not in SYSTEM_PROMPT
     assert "one line" not in SYSTEM_PROMPT
     assert "meta-history" in SYSTEM_PROMPT
-    assert "No length cap" in SYSTEM_PROMPT
-    assert "Do not restate the README" in SYSTEM_PROMPT
-    assert "Do not stop at the README" in SYSTEM_PROMPT
-    assert "Summary — last" in SYSTEM_PROMPT
-    assert "Do not invent a second inspection" in SYSTEM_PROMPT
-    assert "ordinary reading" in SYSTEM_PROMPT
+    assert "Do not wait for a follow-up" in SYSTEM_PROMPT
+    assert "do not stop at the README" in SYSTEM_PROMPT
+    assert "Ordinary readings" in SYSTEM_PROMPT
     assert "tax auditor" not in SYSTEM_PROMPT
 
 
@@ -116,16 +113,17 @@ def test_headless_grok_command_shape(tmp_path: Path, monkeypatch) -> None:
     assert prompt_arg.is_absolute()
     assert prompt_arg == prompt.resolve()
     assert cmd[cmd.index("--cwd") + 1] == str(repo)
-    assert "--json-schema" in cmd
+    assert "--json-schema" not in cmd
     assert "--output-format" in cmd
-    bare = build_cmd(
+    assert "--no-memory" in cmd
+    with_schema = build_cmd(
         grok_bin="/opt/grok",
         prompt_file=relative,
         system_prompt="sys",
         cwd=repo,
-        json_schema=False,
+        json_schema=True,
     )
-    assert "--json-schema" not in bare
+    assert "--json-schema" in with_schema
     assert "--system-prompt-override" in cmd
     assert "--max-turns" in cmd
     assert cmd[cmd.index("--max-turns") + 1] == "512"
@@ -151,9 +149,22 @@ def test_headless_grok_command_shape(tmp_path: Path, monkeypatch) -> None:
     assert "read_file" not in denied
     assert "grep" not in denied
     assert "list_dir" not in denied
-    assert "Agent" not in denied
+    assert "Agent" in denied
     assert "run_terminal_cmd" not in denied
-    assert "--no-subagents" not in cmd
+    assert "--no-subagents" in cmd
+    assert "--tools" in cmd
+    tools = cmd[cmd.index("--tools") + 1]
+    assert "read_file" in tools
+    assert "Agent" not in tools
+    kids = build_cmd(
+        grok_bin="/opt/grok",
+        prompt_file=relative,
+        system_prompt="sys",
+        cwd=repo,
+        subagents=True,
+    )
+    assert "--no-subagents" not in kids
+    assert "Agent" not in kids[kids.index("--disallowed-tools") + 1]
     assert "--session-id" in cmd
 
 
@@ -178,7 +189,7 @@ def test_user_prompt_is_a_catalog(tmp_path: Path) -> None:
         "checklist": [{"id": "purpose"}, {"id": "padding"}],
     }
     text = user_prompt(pack, pack_path, brief_path=brief_path)
-    assert "catalog" in text.lower()
+    assert "pack" in text
     assert str(pack_path.resolve()) in text
     assert str(brief_path.resolve()) in text
     assert "400" in text
@@ -187,8 +198,8 @@ def test_user_prompt_is_a_catalog(tmp_path: Path) -> None:
     assert hashes[10] not in text
     assert "diff xxx" not in text
     assert "f199.py" not in text
-    assert "JSON shape" in text
-    assert len(text) < 8000
+    assert "checklist[{id,answer,concern" in text
+    assert len(text) < 2500
 
 
 def test_scorer_followup_is_fill_in_only() -> None:
@@ -322,6 +333,8 @@ def test_analyze_followup_fills_checklist(tmp_path: Path) -> None:
 
     def fake_run(cmd, **_kwargs):
         calls["n"] += 1
+        cwd = cmd[cmd.index("--cwd") + 1]
+        assert Path(cwd) == repo
         prompt = Path(cmd[cmd.index("--prompt-file") + 1])
         if prompt.name.endswith(".score.md"):
             report = {
@@ -363,11 +376,11 @@ def test_analyze_uses_injected_runner(department: Path, tmp_path: Path, as_of: d
         prompt = Path(cmd[cmd.index("--prompt-file") + 1])
         assert prompt.is_absolute()
         text = prompt.read_text(encoding="utf-8")
-        assert "catalog" in text.lower()
-        assert "## Files" in text
-        assert "## Counts" in text
-        assert "allowed_hashes" in text
+        assert "pack " in text
+        assert "brief " in text
+        assert "ids " in text
         assert '"recent_commits"' not in text
+        assert "--json-schema" not in cmd
         report = {
             "purpose": "fixture",
             "category": "unknown",

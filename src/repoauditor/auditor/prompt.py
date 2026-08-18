@@ -8,34 +8,21 @@ from pathlib import Path
 from repoauditor.auditor.schema import CATEGORIES, CHECKLIST_IDS
 
 SYSTEM_PROMPT = """\
-You audit one git repo (cwd). Scripts already counted history.
-The user message is a catalog of files — not the evidence. Context is ~200k; do not slurp the pack.
-Spawn explore subagents to read only what a tag needs.
+Inspect one git repo (cwd). User message is a file catalog — read those files; do not inline the pack.
 
-OPERATING PROTOCOL
-1. Mapper — spawn explore (read-only). Mission: HEAD vs claims. Investigate in: README, tree, sampled source.
-   Inform: purpose, category, head_substance, readme_match. Deliver: short map + paths to open.
-2. Investigator — spawn explore (read-only). Feed mapper notes + pack flags. Do not stop at the README.
-   Investigate in: files that confirm or kill those flags.
-   Inform: commit_substance, wip_theater, bot_vs_human, padding, occupancy, ai_assistance.
-   Deliver: paths + hashes that exist in the pack only.
-3. Scorer — you. Every pack checklist id first. concern=true → −1; answer starts with "cannot tell" → 0; else +1.
-   Also finish: demo_vs_durable, run_the_business, requirements_theater, greenfield_vs_buy.
-   Do not invent a second inspection. The tags are the features; score them before you write prose.
-4. Summary — last. After every tag is scored, write headline and executive_summary for THIS repo only.
-   No length cap. Use blank lines. Do not re-ask the checklist as new questions.
-   Write for a reader who has not seen the tags. Describe the tree and the commit record first.
-   Fold a concern or a flag into that story where it comes up. Do not close with a list of tag names.
-   If the files also support an ordinary reading (fork drift, student work, research iteration, a lab notebook), say so.
-   If more than one reading fits, say so. Do not force a product category.
-   Plain, specific, even-handed. Dates, people, paths. Do not say guilty, malfeasance, or fired.
-   Git is not a timesheet. Do not restate the README.
-   Still cover: what it does; whether anyone still uses it and how; who is on it; meta-history (how it got here).
-   Volume is not work. Comments are not a product. A scaffold is not a suite. cannot tell when you cannot tell.
+Mapper: HEAD vs claims (README, tree, sampled source). Inform purpose, category, head_substance, readme_match.
+Investigator: follow pack flags in the tree; do not stop at the README. Inform commit_substance, wip_theater, bot_vs_human, padding, occupancy, ai_assistance. Cite pack hashes/paths only.
+Scorer: every checklist id. concern=true → −1; answer starts with "cannot tell" → 0; else +1. Also demo_vs_durable, run_the_business, requirements_theater, greenfield_vs_buy.
+Summary last: headline + executive_summary for this repo. No length cap. Not a README restatement. Not a list of tag names.
+Cover what it does (HEAD vs claims), whether it is used and how, who works it, meta-history. Ordinary readings (fork, student work, research iteration) when the files support them. Dates, people, paths. Volume is not work.
 
-Rules: open catalog files as needed; do not invent hashes; do not dump every commit into context; do not edit the tree; do not search the web.
-End with one JSON object in the shape below. If you cannot, write the summary as plain text.
+This call outputs one JSON object (keys in the user message): filled checklist + headline + executive_summary. Do not invent hashes. Do not wait for a follow-up.
 """
+
+SYSTEM_PROMPT_SUBAGENTS = (
+    "Mapper/investigator may use explore children; you still score and write the JSON.\n"
+    + SYSTEM_PROMPT
+)
 
 SCORER_SYSTEM_PROMPT = """\
 You only fill a JSON object. You do not investigate. You do not write prose.
@@ -119,33 +106,22 @@ def user_prompt(
         if summary:
             line += f": {summary}"
         flag_lines.append(line)
-    files = []
-    if pack_path:
-        files.append(f"- Full pack (all hashes, HEAD paths, sampled patches): `{_abs(pack_path)}`")
-    if brief_path:
-        files.append(f"- Slim brief (metrics + flags + recent sample): `{_abs(brief_path)}`")
-    files.append(f"- Repo cwd: `{pack.get('path') or ''}`")
     return (
-        f"Repo: `{pack.get('repo_id') or ''}`\n"
-        "This message is a catalog. Evidence lives in the files. "
-        "Read what a tag needs; do not ingest thousands of commits.\n\n"
-        "## Files\n"
-        + "\n".join(files)
-        + "\n\n## Counts\n"
-        f"- commits in pack (allowed_hashes): {len(pack.get('allowed_hashes') or [])}\n"
-        f"- recent_commits sampled: {len(pack.get('recent_commits') or [])}\n"
-        f"- HEAD paths: {len(pack.get('head_paths') or [])}\n"
-        f"- flags: {len(findings)}\n"
-        f"- checklist ids: {', '.join(ids) or '(none)'}\n\n"
-        "## Metrics (rolled)\n"
-        + (", ".join(metric_bits) or "(none)")
-        + "\n\n## Flags (names only; hashes are in the pack file)\n"
-        + ("\n".join(flag_lines) or "- none")
-        + "\n\nRead the slim brief first if present. "
-        "Open the full pack only for a hash or path you need. "
-        "Then mapper → investigator → scorer.\n\n"
-        + checklist_json_shape()
-        + "\n"
+        f"Repo {pack.get('repo_id') or ''}\n"
+        f"pack {_abs(pack_path) if pack_path else ''}\n"
+        f"brief {_abs(brief_path) if brief_path else ''}\n"
+        f"tree {pack.get('path') or ''}\n"
+        f"n_hash={len(pack.get('allowed_hashes') or [])} "
+        f"n_recent={len(pack.get('recent_commits') or [])} "
+        f"n_paths={len(pack.get('head_paths') or [])} "
+        f"n_flags={len(findings)}\n"
+        f"ids {', '.join(ids) or '-'}\n"
+        f"metrics {', '.join(metric_bits) or '-'}\n"
+        f"flags {'; '.join(flag_lines) or '-'}\n"
+        "Read brief then only pack/tree a tag needs. "
+        "JSON this call: purpose,category,headline,executive_summary,"
+        "checklist[{id,answer,concern,evidence_hashes,evidence_paths}],"
+        "next_inspect[{hash,why}]. Every id. No invented hashes.\n"
     )
 
 

@@ -117,8 +117,9 @@ def cmd_scan(
     grok_bin: str | None = None,
     timeout: int = ANALYZE_TIMEOUT,
     max_turns: int = EXPLORE_MAX_TURNS,
-    json_schema: bool = True,
+    json_schema: bool = False,
     model: str | None = None,
+    subagents: bool = False,
 ) -> dict:
     extract_info = cmd_extract(input_dir, out_dir)
     cmd_assimilate(out_dir)
@@ -137,6 +138,7 @@ def cmd_scan(
             max_turns=max_turns,
             json_schema=json_schema,
             model=model,
+            subagents=subagents,
         )
         report = _write_report(out_dir, as_of, analysis)
     return {
