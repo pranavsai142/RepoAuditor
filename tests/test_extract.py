@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -120,6 +121,30 @@ def test_extract_survives_non_utf8_patch(tmp_path: Path) -> None:
     show_patch(repo, commits[0].hash)  # substance path must not raise either
     scored = score_repo(repo, [{"repo_id": "latin1", "hash": commits[0].hash, "is_merge": False}])
     assert f"latin1:{commits[0].hash}" in scored
+
+
+def test_extract_since_drops_older_commits(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path / "fork")
+    _commit_bytes(repo, "upstream.txt", b"old\n", "upstream")
+    env = os.environ.copy()
+    env.update(
+        {
+            "GIT_AUTHOR_NAME": "Org Dev",
+            "GIT_AUTHOR_EMAIL": "dev@dept.test",
+            "GIT_AUTHOR_DATE": "2024-06-15T12:00:00+00:00",
+            "GIT_COMMITTER_NAME": "Org Dev",
+            "GIT_COMMITTER_EMAIL": "dev@dept.test",
+            "GIT_COMMITTER_DATE": "2024-06-15T12:00:00+00:00",
+        }
+    )
+    (repo / "org.txt").write_text("new\n", encoding="utf-8")
+    subprocess.run(["git", "add", "org.txt"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "org work"], cwd=repo, check=True, capture_output=True, env=env)
+    all_commits, _ = extract_repo("fork", repo)
+    assert len(all_commits) == 2
+    cut, _ = extract_repo("fork", repo, since=date(2024, 6, 1))
+    assert len(cut) == 1
+    assert cut[0].subject == "org work"
 
 
 def test_run_git_ignores_inherited_git_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -52,8 +52,15 @@ th { cursor:pointer; user-select:none; background:#eef3ef; white-space:nowrap; }
 th[aria-sort="asc"]::after { content:" \\25B2"; }
 th[aria-sort="desc"]::after { content:" \\25BC"; }
 tr:hover td { background:#f3f7f4; }
-.chart { width:100%; height:140px; background:#fff; }
+.chart { width:100%; height:168px; background:#fff; display:block; }
 .chart-label { font-size:10px; fill:#5c6b60; }
+.chart-zoom { position:relative; }
+.chart-help { margin:.2rem 0 .4rem; }
+.chart-tools { display:flex; gap:.6rem; align-items:center; min-height:1.6rem; margin-bottom:.3rem; }
+.chart-reset { border:1px solid var(--line); background:#fff; padding:.2rem .55rem; cursor:pointer; font:inherit; }
+.chart-stage { position:relative; user-select:none; }
+.chart-stage .chart { cursor:crosshair; }
+.chart-brush { position:absolute; top:12px; bottom:28px; background:rgba(11,92,56,.12); border:1px solid #0b5c38; pointer-events:none; }
 .minis { display:flex; gap:4px; min-width:140px; }
 .mini { flex:1; background:#e6eee8; height:18px; position:relative; display:block; }
 .mini i { display:block; height:100%; background:var(--ok); }
@@ -214,6 +221,136 @@ document.querySelectorAll("table.sortable").forEach((table) => {
     }
   }
 });
+
+(function () {
+  const W = 720, H = 168, L = 42, R = 10, T = 12, B = 28;
+  function compact(n) {
+    const a = Math.abs(n);
+    if (a < 1000) return String(n);
+    if (a >= 1e6) return (n / 1e6).toPrecision(3).replace(/\\.0+$/, "") + "M";
+    return (n / 1e3).toPrecision(3).replace(/\\.0+$/, "") + "K";
+  }
+  function shortX(label) {
+    const t = String(label);
+    if (t.length <= 10) return t;
+    if (t[4] === "-" && t.indexOf("T") !== -1) return t.slice(0, 10);
+    return t.slice(0, 10);
+  }
+  function xTicks(n) {
+    if (n <= 1) return [0];
+    if (n <= 6) return [...Array(n).keys()];
+    return [...new Set([0, Math.floor(n / 4), Math.floor(n / 2), Math.floor((3 * n) / 4), n - 1])].sort((a, b) => a - b);
+  }
+  function yTicks(peak) {
+    if (peak <= 1) return [0, 1];
+    const mid = Math.max(1, Math.round(peak / 2));
+    return mid === peak ? [0, peak] : [0, mid, peak];
+  }
+  function draw(stage, rows, lo, hi) {
+    const slice = rows.slice(lo, hi + 1);
+    if (!slice.length) return;
+    const peak = Math.max(...slice.map((r) => r[1])) || 1;
+    const innerW = W - L - R;
+    const innerH = H - T - B;
+    const n = slice.length;
+    const gap = n > 80 ? 2 : 3;
+    const barW = Math.max(2, Math.floor((innerW - gap * (n + 1)) / n));
+    let bars = "";
+    slice.forEach((row, i) => {
+      const h = row[1] ? Math.floor(innerH * (row[1] / peak)) : 0;
+      const x = L + gap + i * (barW + gap);
+      const y = T + (innerH - h);
+      bars += '<rect class="chart-bar" data-i="' + (lo + i) + '" x="' + x + '" y="' + y +
+        '" width="' + barW + '" height="' + h + '" fill="#1b7f4e"><title>' +
+        row[0] + ": " + row[1] + "</title></rect>";
+    });
+    let axis = '<line x1="' + L + '" y1="' + T + '" x2="' + L + '" y2="' + (T + innerH) +
+      '" stroke="#d5ddd7"/><line x1="' + L + '" y1="' + (T + innerH) + '" x2="' + (W - R) +
+      '" y2="' + (T + innerH) + '" stroke="#d5ddd7"/>';
+    yTicks(peak).forEach((value) => {
+      const y = T + innerH - Math.floor(innerH * (value / peak));
+      axis += '<line x1="' + (L - 3) + '" y1="' + y + '" x2="' + L + '" y2="' + y +
+        '" stroke="#8a938c"/><text x="' + (L - 6) + '" y="' + (y + 3) +
+        '" text-anchor="end" class="chart-label">' + compact(value) + "</text>";
+    });
+    let labels = "";
+    xTicks(n).forEach((i) => {
+      const x = L + gap + i * (barW + gap) + barW / 2;
+      labels += '<text x="' + x.toFixed(1) + '" y="' + (H - 8) +
+        '" text-anchor="middle" class="chart-label">' + shortX(slice[i][0]) + "</text>";
+    });
+    stage.innerHTML = '<svg class="chart" viewBox="0 0 ' + W + " " + H +
+      '" role="img" aria-label="Activity bars" data-lo="' + lo + '" data-hi="' + hi + '">' +
+      axis + bars + labels + "</svg>";
+  }
+  function indexAt(svg, clientX, n) {
+    const rect = svg.getBoundingClientRect();
+    const x = ((clientX - rect.left) / rect.width) * W;
+    const innerW = W - L - R;
+    const t = Math.min(1, Math.max(0, (x - L) / innerW));
+    return Math.min(n - 1, Math.max(0, Math.floor(t * n)));
+  }
+  document.querySelectorAll(".chart-zoom").forEach((box) => {
+    const dataEl = box.querySelector(".chart-data");
+    const stage = box.querySelector(".chart-stage");
+    const reset = box.querySelector(".chart-reset");
+    const win = box.querySelector(".chart-window");
+    if (!dataEl || !stage) return;
+    let rows;
+    try { rows = JSON.parse(dataEl.textContent || "[]"); } catch (e) { return; }
+    if (!rows.length) return;
+    let brush = null;
+    function showRange(lo, hi) {
+      if (win) win.textContent = rows[lo][0] + " → " + rows[hi][0];
+      if (reset) reset.hidden = lo === 0 && hi === rows.length - 1;
+    }
+    const first = stage.querySelector("svg");
+    if (first) showRange(0, rows.length - 1);
+    if (reset) {
+      reset.addEventListener("click", () => {
+        draw(stage, rows, 0, rows.length - 1);
+        showRange(0, rows.length - 1);
+      });
+    }
+    let drag = null;
+    stage.addEventListener("mousedown", (ev) => {
+      const svg = stage.querySelector("svg");
+      if (!svg || ev.button !== 0) return;
+      ev.preventDefault();
+      const start = indexAt(svg, ev.clientX, rows.length);
+      drag = { start, from: ev.clientX };
+      brush = document.createElement("div");
+      brush.className = "chart-brush";
+      const boxR = stage.getBoundingClientRect();
+      brush.style.left = (ev.clientX - boxR.left) + "px";
+      brush.style.width = "0px";
+      stage.appendChild(brush);
+    });
+    window.addEventListener("mousemove", (ev) => {
+      if (!drag || !brush) return;
+      const boxR = stage.getBoundingClientRect();
+      const a = Math.min(drag.from, ev.clientX) - boxR.left;
+      const b = Math.max(drag.from, ev.clientX) - boxR.left;
+      brush.style.left = Math.max(0, a) + "px";
+      brush.style.width = Math.max(2, b - a) + "px";
+    });
+    window.addEventListener("mouseup", (ev) => {
+      if (!drag) return;
+      const svg = stage.querySelector("svg");
+      if (brush) brush.remove();
+      brush = null;
+      const start = drag.start;
+      drag = null;
+      if (!svg) return;
+      const end = indexAt(svg, ev.clientX, rows.length);
+      const lo = Math.min(start, end);
+      const hi = Math.max(start, end);
+      if (hi - lo < 1) return;
+      draw(stage, rows, lo, hi);
+      showRange(lo, hi);
+    });
+  });
+})();
 """
 
 
@@ -222,8 +359,19 @@ def slug(value: str) -> str:
     return (cleaned[:80] or "item")
 
 
-def _page(title: str, body: str, *, asset_prefix: str, as_of: date, input_path: str) -> str:
+def _page(
+    title: str,
+    body: str,
+    *,
+    asset_prefix: str,
+    as_of: date,
+    input_path: str,
+    since: date | None = None,
+) -> str:
     home = f"{asset_prefix}index.html" if asset_prefix else "index.html"
+    window = f"as-of {as_of.isoformat()}"
+    if since:
+        window = f"since {since.isoformat()} · {window}"
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -234,7 +382,7 @@ def _page(title: str, body: str, *, asset_prefix: str, as_of: date, input_path: 
 <body>
   <header>
     <a href="{home}">RepoAuditor</a>
-    <div class="meta">Input <code>{esc(input_path)}</code> · as-of {as_of.isoformat()} · commit authors</div>
+    <div class="meta">Input <code>{esc(input_path)}</code> · {window} · commit authors</div>
   </header>
   <main>{body}</main>
   <footer>{esc(PRIVACY)}</footer>
@@ -401,6 +549,7 @@ def write_report(
     assistance: dict | None = None,
     executive: dict | None = None,
     rankings: dict | None = None,
+    since: date | None = None,
 ) -> Path:
     del rankings
     root = out_dir / "report"
@@ -438,6 +587,7 @@ def write_report(
         repo_slugs,
         person_slugs,
         findings_by_repo,
+        since=since,
     )
     (root / "index.html").write_text(index, encoding="utf-8")
 
@@ -450,6 +600,7 @@ def write_report(
             as_of,
             input_path,
             person_slugs,
+            since=since,
         )
         (root / "repos" / f"{repo_slugs[repo['repo_id']]}.html").write_text(page, encoding="utf-8")
 
@@ -461,6 +612,7 @@ def write_report(
             input_path,
             repo_slugs,
             findings_by_person.get(person["identity_key"]) or [],
+            since=since,
         )
         (root / "people" / f"{person_slugs[person['identity_key']]}.html").write_text(
             page, encoding="utf-8"
@@ -514,6 +666,7 @@ def _dashboard_html(
     repo_slugs: dict[str, str],
     person_slugs: dict[str, str],
     findings_by_repo: dict[str, list[dict]],
+    since: date | None = None,
 ) -> str:
     commits = sum(int(r.get("commit_count") or 0) for r in repos)
     stats = (
@@ -570,7 +723,14 @@ def _dashboard_html(
     {''.join(cards) or '<p class="muted">No repos.</p>'}
     {assist_html}
     """
-    return _page("RepoAuditor dashboard", body, asset_prefix="", as_of=as_of, input_path=input_path)
+    return _page(
+        "RepoAuditor dashboard",
+        body,
+        asset_prefix="",
+        as_of=as_of,
+        input_path=input_path,
+        since=since,
+    )
 
 
 def _repo_table(
@@ -821,6 +981,7 @@ def _repo_page(
     as_of: date,
     input_path: str,
     person_slugs: dict[str, str],
+    since: date | None = None,
 ) -> str:
     authors = [a for a in repo.get("authors") or [] if not a.get("is_bot")]
     author_rows = []
@@ -939,7 +1100,14 @@ def _repo_page(
     <h2>Open first</h2>
     <ul>{inspect or '<li class="muted">None yet.</li>'}</ul>
     """
-    return _page(f"Repo {repo['repo_id']}", body, asset_prefix="../", as_of=as_of, input_path=input_path)
+    return _page(
+        f"Repo {repo['repo_id']}",
+        body,
+        asset_prefix="../",
+        as_of=as_of,
+        input_path=input_path,
+        since=since,
+    )
 
 
 def _person_page(
@@ -949,6 +1117,7 @@ def _person_page(
     input_path: str,
     repo_slugs: dict[str, str],
     findings: list[dict] | None = None,
+    since: date | None = None,
 ) -> str:
     repo_rows = []
     by_id = {r["repo_id"]: r for r in repos}
@@ -1028,4 +1197,5 @@ def _person_page(
         asset_prefix="../",
         as_of=as_of,
         input_path=input_path,
+        since=since,
     )

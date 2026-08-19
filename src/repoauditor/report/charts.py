@@ -1,42 +1,129 @@
-"""Inline SVG charts. No JS chart library."""
+"""Inline SVG charts. Zoom lives in the page script; no chart library."""
 
 from __future__ import annotations
 
+import json
 from datetime import date, timedelta
 from html import escape
+
+from repoauditor.report.format import compact_number
 
 
 def esc(value: object) -> str:
     return escape("" if value is None else str(value))
 
 
-def bar_chart(rows: list[tuple[str, int]], *, width: int = 720, height: int = 140) -> str:
+CHART_W = 720
+CHART_H = 168
+PAD_L = 42
+PAD_R = 10
+PAD_T = 12
+PAD_B = 28
+
+
+def bar_chart(rows: list[tuple[str, int]], *, width: int = CHART_W, height: int = CHART_H) -> str:
     if not rows:
         return '<p class="muted">No activity in range.</p>'
-    peak = max(count for _, count in rows) or 1
-    gap = 3
-    bar_w = max(4, int((width - gap * (len(rows) + 1)) / max(len(rows), 1)))
-    chart_h = height - 28
+    svg = _bar_svg(rows, 0, len(rows) - 1, width=width, height=height)
+    payload = json.dumps([[label, int(count)] for label, count in rows], separators=(",", ":"))
+    payload = payload.replace("<", "\\u003c")
+    return (
+        '<div class="chart-zoom">'
+        '<p class="muted chart-help">Drag across the bars to zoom a short window. '
+        "Y-axis follows the visible peak. Reset to see the full range.</p>"
+        '<div class="chart-tools">'
+        '<button type="button" class="chart-reset" hidden>Reset zoom</button>'
+        '<span class="chart-window muted"></span></div>'
+        f'<div class="chart-stage">{svg}</div>'
+        f'<script type="application/json" class="chart-data">{payload}</script>'
+        "</div>"
+    )
+
+
+def _bar_svg(
+    rows: list[tuple[str, int]],
+    lo: int,
+    hi: int,
+    *,
+    width: int = CHART_W,
+    height: int = CHART_H,
+) -> str:
+    slice_rows = rows[lo : hi + 1]
+    if not slice_rows:
+        return ""
+    peak = max(count for _, count in slice_rows) or 1
+    inner_w = width - PAD_L - PAD_R
+    inner_h = height - PAD_T - PAD_B
+    n = len(slice_rows)
+    gap = 2 if n > 80 else 3
+    bar_w = max(2, int((inner_w - gap * (n + 1)) / n))
     bars = []
-    x = gap
-    for label, count in rows:
-        h = int(chart_h * (count / peak)) if count else 0
-        y = 8 + (chart_h - h)
+    for i, (label, count) in enumerate(slice_rows):
+        h = int(inner_h * (count / peak)) if count else 0
+        x = PAD_L + gap + i * (bar_w + gap)
+        y = PAD_T + (inner_h - h)
         bars.append(
-            f'<rect x="{x}" y="{y}" width="{bar_w}" height="{h}" fill="#1b7f4e">'
-            f'<title>{esc(label)}: {count}</title></rect>'
+            f'<rect class="chart-bar" data-i="{lo + i}" x="{x}" y="{y}" '
+            f'width="{bar_w}" height="{h}" fill="#1b7f4e">'
+            f"<title>{esc(label)}: {count}</title></rect>"
         )
-        x += bar_w + gap
-    first = esc(rows[0][0])
-    last = esc(rows[-1][0])
+    y_ticks = _y_ticks(peak)
+    axis = [
+        f'<line x1="{PAD_L}" y1="{PAD_T}" x2="{PAD_L}" y2="{PAD_T + inner_h}" '
+        f'stroke="#d5ddd7" stroke-width="1"/>',
+        f'<line x1="{PAD_L}" y1="{PAD_T + inner_h}" x2="{width - PAD_R}" '
+        f'y2="{PAD_T + inner_h}" stroke="#d5ddd7" stroke-width="1"/>',
+    ]
+    for value in y_ticks:
+        frac = value / peak if peak else 0
+        y = PAD_T + inner_h - int(inner_h * frac)
+        axis.append(
+            f'<line x1="{PAD_L - 3}" y1="{y}" x2="{PAD_L}" y2="{y}" stroke="#8a938c"/>'
+        )
+        axis.append(
+            f'<text x="{PAD_L - 6}" y="{y + 3}" text-anchor="end" class="chart-label">'
+            f"{esc(compact_number(value))}</text>"
+        )
+    x_labels = []
+    ticks = _x_indices(n)
+    for i in ticks:
+        label, _count = slice_rows[i]
+        x = PAD_L + gap + i * (bar_w + gap) + bar_w / 2
+        x_labels.append(
+            f'<text x="{x:.1f}" y="{height - 8}" text-anchor="middle" class="chart-label">'
+            f"{esc(_short_x(label))}</text>"
+        )
     return (
         f'<svg class="chart" viewBox="0 0 {width} {height}" role="img" '
-        f'aria-label="Activity bars">'
-        f"{''.join(bars)}"
-        f'<text x="4" y="{height - 6}" class="chart-label">{first}</text>'
-        f'<text x="{width - 4}" y="{height - 6}" text-anchor="end" class="chart-label">{last}</text>'
-        f"</svg>"
+        f'aria-label="Activity bars" data-lo="{lo}" data-hi="{hi}">'
+        f"{''.join(axis)}{''.join(bars)}{''.join(x_labels)}</svg>"
     )
+
+
+def _y_ticks(peak: int) -> list[int]:
+    if peak <= 1:
+        return [0, 1]
+    mid = max(1, round(peak / 2))
+    if mid == peak:
+        return [0, peak]
+    return [0, mid, peak]
+
+
+def _x_indices(n: int) -> list[int]:
+    if n <= 1:
+        return [0]
+    if n <= 6:
+        return list(range(n))
+    return sorted({0, n // 4, n // 2, (3 * n) // 4, n - 1})
+
+
+def _short_x(label: str) -> str:
+    text = str(label)
+    if len(text) <= 10:
+        return text
+    if "T" in text and text[4:5] == "-":
+        return text[:10]
+    return text[:10]
 
 
 def mini_bars(values: list[tuple[str, float, float]]) -> str:

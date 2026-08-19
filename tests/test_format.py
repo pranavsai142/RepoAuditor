@@ -1,4 +1,4 @@
-from repoauditor.report.charts import day_heatmap
+from repoauditor.report.charts import bar_chart, day_heatmap
 from repoauditor.report.format import compact_number, display_date
 
 
@@ -16,6 +16,16 @@ def test_compact_number_scales() -> None:
 
 def test_display_date_iso() -> None:
     assert display_date("2024-03-11T12:00:00+00:00") == "2024-03-11"
+
+
+def test_bar_chart_has_axes_and_zoom_wrap() -> None:
+    html = bar_chart([("2022-W01", 2), ("2022-W02", 40), ("2024-W10", 3), ("2024-W11", 1)])
+    assert "chart-zoom" in html
+    assert "chart-data" in html
+    assert 'text-anchor="end"' in html
+    assert 'text-anchor="middle"' in html
+    assert "2022-W01" in html
+    assert "Reset zoom" in html
 
 
 def test_heatmap_has_month_labels_and_wrap() -> None:

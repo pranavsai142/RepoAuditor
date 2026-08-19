@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
+from repoauditor.dates import author_utc_date
 from repoauditor.gitcmd import git_version, run_git, run_git_bytes
 from repoauditor.models import Commit, FileChange, to_dict, volume_of
 
@@ -30,10 +31,31 @@ TRAILER_ARGV = [
 ]
 
 
-def extract_repo(repo_id: str, repo_path: Path) -> tuple[list[Commit], dict]:
-    result = run_git(repo_path, *LOG_ARGV)
+def log_argv(since: date | None = None) -> list[str]:
+    argv = list(LOG_ARGV)
+    if since:
+        argv.append(f"--since={since.isoformat()}")
+    return argv
+
+
+def trailer_argv(since: date | None = None) -> list[str]:
+    argv = list(TRAILER_ARGV)
+    if since:
+        argv.append(f"--since={since.isoformat()}")
+    return argv
+
+
+def extract_repo(
+    repo_id: str,
+    repo_path: Path,
+    *,
+    since: date | None = None,
+) -> tuple[list[Commit], dict]:
+    result = run_git(repo_path, *log_argv(since))
     commits = _parse_log(repo_id, result.stdout)
-    trailers = _parse_trailers(repo_path)
+    if since:
+        commits = [c for c in commits if author_utc_date(c.author_date) >= since]
+    trailers = _parse_trailers(repo_path, since=since)
     for commit in commits:
         commit.trailers = trailers.get(commit.hash, "")
         if commit.is_merge:
@@ -56,12 +78,13 @@ def extract_repo(repo_id: str, repo_path: Path) -> tuple[list[Commit], dict]:
     return commits, meta
 
 
-def extract_meta(input_path: Path) -> dict:
+def extract_meta(input_path: Path, since: date | None = None) -> dict:
     return {
         "git_version": git_version(),
-        "argv": ["git", "-C", "<repo>", *LOG_ARGV],
+        "argv": ["git", "-C", "<repo>", *log_argv(since)],
         "extracted_at_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "input_path": str(input_path.resolve()),
+        "since": since.isoformat() if since else None,
     }
 
 
@@ -106,8 +129,8 @@ def _parse_log(repo_id: str, stdout: str) -> list[Commit]:
     return commits
 
 
-def _parse_trailers(repo: Path) -> dict[str, str]:
-    result = run_git(repo, *TRAILER_ARGV, check=False)
+def _parse_trailers(repo: Path, *, since: date | None = None) -> dict[str, str]:
+    result = run_git(repo, *trailer_argv(since), check=False)
     if result.returncode != 0 or not result.stdout:
         return {}
     mapping: dict[str, str] = {}

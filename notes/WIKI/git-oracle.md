@@ -60,6 +60,8 @@ Default with no revision range is `HEAD` only — that is why `--all` is locked.
 
 `--as-of YYYY-MM-DD` is UTC midnight. Fixture tests always pass `--as-of 2024-07-01`. Never use the machine’s “today” in tests.
 
+`--since YYYY-MM-DD` (optional) is appended as `git log --since=` and commits whose **author** UTC date is still earlier are dropped. Persist `since` in `extract_meta.json`.
+
 ## Duplicate contents
 
 - `tree` = `%T` (https://git-scm.com/docs/pretty-formats)

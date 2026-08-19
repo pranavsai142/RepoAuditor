@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from repoauditor.auditor.grok_cli import ANALYZE_TIMEOUT, EXPLORE_MAX_TURNS
+from repoauditor.dates import parse_as_of
 from repoauditor.auditor.run import cmd_analyze, cmd_pack
 from repoauditor.pipeline import (
     cmd_discover,
@@ -31,6 +32,11 @@ def main(argv: list[str] | None = None) -> int:
     p_ex = sub.add_parser("extract", help="write the raw commit fact table")
     p_ex.add_argument("input_dir")
     p_ex.add_argument("--out", required=True)
+    p_ex.add_argument(
+        "--since",
+        default=None,
+        help="UTC start date YYYY-MM-DD; drop older commits (fork cutoff)",
+    )
 
     p_rank = sub.add_parser("rank", help="rank from persisted raw (no git)")
     p_rank.add_argument("scan")
@@ -47,6 +53,11 @@ def main(argv: list[str] | None = None) -> int:
     p_scan.add_argument("input_dir")
     p_scan.add_argument("--out", required=True)
     p_scan.add_argument("--as-of", default=None)
+    p_scan.add_argument(
+        "--since",
+        default=None,
+        help="UTC start date YYYY-MM-DD; drop older commits (fork cutoff)",
+    )
     p_scan.add_argument(
         "--no-analyze",
         action="store_true",
@@ -131,7 +142,16 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(cmd_discover(Path(args.input_dir)), indent=2))
         return 0
     if args.cmd == "extract":
-        print(json.dumps(cmd_extract(Path(args.input_dir), Path(args.out)), indent=2))
+        print(
+            json.dumps(
+                cmd_extract(
+                    Path(args.input_dir),
+                    Path(args.out),
+                    since=parse_as_of(args.since) if args.since else None,
+                ),
+                indent=2,
+            )
+        )
         return 0
     if args.cmd == "rank":
         print(json.dumps(cmd_rank(Path(args.scan), parse_as_of_arg(args.as_of)), indent=2))
@@ -147,6 +167,7 @@ def main(argv: list[str] | None = None) -> int:
                     Path(args.out),
                     parse_as_of_arg(args.as_of),
                     analyze=not args.no_analyze,
+                    since=parse_as_of(args.since) if args.since else None,
                     grok_bin=args.grok_bin,
                     timeout=args.timeout,
                     max_turns=args.max_turns,

@@ -31,6 +31,7 @@ This is GrimoireLab’s collect → enrich → identity → display, collapsed o
 - If the path is **not** a git repo → treat it as a folder of clones. Walk, stop at the first `.git` of each child, depth ≤ 8.
 - Skip: `.git`, `node_modules`, `.venv`, `venv`, `__pycache__`.
 - `repo_id` = directory name when the input is the repo; otherwise POSIX path relative to the input root.
+- `--since YYYY-MM-DD` (UTC) is a start gate at extract: `git log --since=` plus author-date filter. Use it when clones are forks and pre-org history should not count. `--as-of` is still the end of the window for fade/graveyard.
 
 ## 2. Collection (metrics from git)
 

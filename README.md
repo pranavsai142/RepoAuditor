@@ -31,6 +31,8 @@ uv sync --group dev
 uv run repoauditor scan /path/to/department --out /tmp/ra-scan --as-of 2024-07-01
 ```
 
+Forks: `--since YYYY-MM-DD` drops older commits at extract so upstream history never enters ranks, flags, or the inspector.
+
 Writes JSON under `raw/` and `derived/`, then a multi-page HTML report at `<out>/report/index.html` (sortable repo and people tables, charts, per-repo and per-person pages). Product `scan` then runs headless Grok for the inspector checklist. `--no-analyze` is only for the test harness.
 
 ```bash

@@ -23,19 +23,24 @@ def cmd_discover(input_dir: Path) -> list[dict]:
     return discover(input_dir)
 
 
-def cmd_extract(input_dir: Path, out_dir: Path) -> dict:
+def cmd_extract(input_dir: Path, out_dir: Path, *, since: date | None = None) -> dict:
     repos = discover(input_dir)
     all_commits = []
     raw_repos = []
     for repo in repos:
-        commits, meta = extract_repo(repo["repo_id"], Path(repo["path"]))
+        commits, meta = extract_repo(repo["repo_id"], Path(repo["path"]), since=since)
         raw_repos.append(meta)
         all_commits.extend(commits_as_dicts(commits))
     paths = scan_paths(out_dir)
     write_json(paths["raw_repos"], raw_repos)
     write_jsonl(paths["raw_commits"], all_commits)
-    write_json(paths["extract_meta"], extract_meta(input_dir))
-    return {"repos": len(raw_repos), "commits": len(all_commits), "out": str(out_dir)}
+    write_json(paths["extract_meta"], extract_meta(input_dir, since=since))
+    return {
+        "repos": len(raw_repos),
+        "commits": len(all_commits),
+        "out": str(out_dir),
+        "since": since.isoformat() if since else None,
+    }
 
 
 def _load_raw(out_dir: Path) -> tuple[list[dict], list[dict], dict]:
@@ -105,6 +110,7 @@ def _write_report(out_dir: Path, as_of: date, analysis: list[dict] | None = None
         assistance=assistance,
         executive=executive,
         rankings=rankings,
+        since=parse_as_of(meta["since"]) if meta.get("since") else None,
     )
 
 
@@ -120,8 +126,9 @@ def cmd_scan(
     json_schema: bool = False,
     model: str | None = None,
     subagents: bool = False,
+    since: date | None = None,
 ) -> dict:
-    extract_info = cmd_extract(input_dir, out_dir)
+    extract_info = cmd_extract(input_dir, out_dir, since=since)
     cmd_assimilate(out_dir)
     cmd_substance(out_dir)
     rankings = cmd_rank(out_dir, as_of)
