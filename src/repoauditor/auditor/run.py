@@ -91,16 +91,30 @@ def cmd_analyze(
     json_schema: bool = False,
     model: str | None = None,
     subagents: bool = False,
+    force: bool = False,
 ) -> list[dict]:
     paths = scan_paths(out_dir)
     if not paths["packs"].exists() or not any(paths["packs"].glob("*.json")):
         cmd_pack(out_dir)
     reports: list[dict] = []
+    n_skip = 0
+    n_run = 0
     analysis_dir = paths["analysis"]
     analysis_dir.mkdir(parents=True, exist_ok=True)
     pack_files = sorted(paths["packs"].glob("*.json"))
     for i, pack_path in enumerate(pack_files, start=1):
         pack = read_json(pack_path)
+        dest = analysis_dir / f"{pack_path.stem}.json"
+        kept = None if force else _load_finished_report(dest)
+        if kept is not None:
+            print(
+                f"skip {i}/{len(pack_files)} {pack.get('repo_id')}",
+                file=sys.stderr,
+                flush=True,
+            )
+            reports.append(kept)
+            n_skip += 1
+            continue
         print(
             f"analyze {i}/{len(pack_files)} {pack.get('repo_id')}",
             file=sys.stderr,
@@ -113,7 +127,6 @@ def cmd_analyze(
             user_prompt(pack, pack_path, brief_path=brief_path),
             encoding="utf-8",
         )
-        dest = analysis_dir / f"{pack_path.stem}.json"
         try:
             raw = run_headless(
                 prompt_path,
@@ -158,7 +171,13 @@ def cmd_analyze(
             validated = _keep_prior_report(dest, stub)
         write_json(dest, validated)
         reports.append(validated)
+        n_run += 1
     write_json(paths["analysis_index"], reports)
+    print(
+        f"analyze finished: ran {n_run}, skipped {n_skip}, total {len(reports)}",
+        file=sys.stderr,
+        flush=True,
+    )
     return reports
 
 
@@ -215,9 +234,21 @@ def _merge_scored(base: dict, extra: dict, pack: dict) -> dict:
 
 
 def _is_keeper(report: dict) -> bool:
-    if report.get("executive_summary"):
+    if (report.get("executive_summary") or "").strip():
         return True
     return any((item.get("answer") or "").strip() for item in report.get("checklist") or [])
+
+
+def _load_finished_report(dest: Path) -> dict | None:
+    if not dest.exists():
+        return None
+    try:
+        prior = read_json(dest)
+    except (OSError, json.JSONDecodeError, ValueError):
+        return None
+    if isinstance(prior, dict) and _is_keeper(prior):
+        return prior
+    return None
 
 
 def _keep_prior_report(dest: Path, stub: dict) -> dict:

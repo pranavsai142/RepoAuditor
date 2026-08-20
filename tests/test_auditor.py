@@ -311,6 +311,225 @@ def test_keep_prior_report_on_failed_parse(tmp_path: Path) -> None:
     assert _keep_prior_report(empty, stub)["analyze_error"]
 
 
+def test_analyze_skips_keeper_reports_and_retries_stubs(tmp_path: Path) -> None:
+    from repoauditor.persist import write_json
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    out = tmp_path / "scan"
+    packs = out / "analysis" / "packs"
+    packs.mkdir(parents=True)
+    reports_dir = out / "analysis" / "reports"
+    reports_dir.mkdir(parents=True)
+    for repo_id in ("alpha", "bravo", "charlie"):
+        write_json(
+            packs / f"{repo_id}.json",
+            {
+                "repo_id": repo_id,
+                "path": str(repo),
+                "allowed_hashes": ["abc"],
+                "checklist": load_checklist(),
+            },
+        )
+    write_json(
+        reports_dir / "alpha.json",
+        {
+            "repo_id": "alpha",
+            "purpose": "done",
+            "category": "docs",
+            "headline": "kept",
+            "executive_summary": "alpha already inspected",
+            "checklist": [
+                {
+                    "id": "purpose",
+                    "answer": "lab",
+                    "concern": False,
+                    "evidence_hashes": [],
+                    "evidence_paths": [],
+                }
+            ],
+            "next_inspect": [],
+        },
+    )
+    write_json(
+        reports_dir / "bravo.json",
+        {
+            "repo_id": "bravo",
+            "purpose": "",
+            "category": "unknown",
+            "headline": "",
+            "executive_summary": "",
+            "checklist": [],
+            "analyze_error": "killed mid-run",
+        },
+    )
+    ran: list[str] = []
+
+    def fake_run(cmd, **_kwargs):
+        prompt = Path(cmd[cmd.index("--prompt-file") + 1])
+        stem = prompt.name.removesuffix(".prompt.md")
+        ran.append(stem)
+        report = {
+            "purpose": "fresh",
+            "category": "unknown",
+            "headline": stem,
+            "executive_summary": f"{stem} new inspect",
+            "checklist": [
+                {
+                    "id": "purpose",
+                    "answer": "from pack",
+                    "concern": False,
+                    "evidence_hashes": [],
+                    "evidence_paths": [],
+                }
+            ],
+            "next_inspect": [],
+        }
+        return SimpleNamespace(
+            returncode=0,
+            stdout=json.dumps({"text": json.dumps(report)}),
+            stderr="",
+        )
+
+    reports = cmd_analyze(out, grok_bin="grok", runner=fake_run)
+    assert ran == ["bravo", "charlie"]
+    assert [row["repo_id"] for row in reports] == ["alpha", "bravo", "charlie"]
+    assert reports[0]["executive_summary"] == "alpha already inspected"
+    assert reports[1]["executive_summary"] == "bravo new inspect"
+    assert reports[2]["executive_summary"] == "charlie new inspect"
+    index = json.loads((out / "analysis" / "index.json").read_text())
+    assert len(index) == 3
+
+
+def test_analyze_retries_empty_report_files(tmp_path: Path) -> None:
+    from repoauditor.persist import write_json
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    out = tmp_path / "scan"
+    packs = out / "analysis" / "packs"
+    packs.mkdir(parents=True)
+    reports_dir = out / "analysis" / "reports"
+    reports_dir.mkdir(parents=True)
+    for repo_id in ("blank", "empty"):
+        write_json(
+            packs / f"{repo_id}.json",
+            {
+                "repo_id": repo_id,
+                "path": str(repo),
+                "allowed_hashes": ["abc"],
+                "checklist": load_checklist(),
+            },
+        )
+    (reports_dir / "blank.json").write_text("", encoding="utf-8")
+    write_json(reports_dir / "empty.json", {})
+    ran: list[str] = []
+
+    def fake_run(cmd, **_kwargs):
+        prompt = Path(cmd[cmd.index("--prompt-file") + 1])
+        stem = prompt.name.removesuffix(".prompt.md")
+        ran.append(stem)
+        report = {
+            "purpose": "fresh",
+            "category": "unknown",
+            "headline": stem,
+            "executive_summary": f"{stem} new inspect",
+            "checklist": [
+                {
+                    "id": "purpose",
+                    "answer": "from pack",
+                    "concern": False,
+                    "evidence_hashes": [],
+                    "evidence_paths": [],
+                }
+            ],
+            "next_inspect": [],
+        }
+        return SimpleNamespace(
+            returncode=0,
+            stdout=json.dumps({"text": json.dumps(report)}),
+            stderr="",
+        )
+
+    reports = cmd_analyze(out, grok_bin="grok", runner=fake_run)
+    assert ran == ["blank", "empty"]
+    assert [row["executive_summary"] for row in reports] == [
+        "blank new inspect",
+        "empty new inspect",
+    ]
+
+
+def test_analyze_force_reruns_keepers(tmp_path: Path) -> None:
+    from repoauditor.persist import write_json
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    out = tmp_path / "scan"
+    packs = out / "analysis" / "packs"
+    packs.mkdir(parents=True)
+    reports_dir = out / "analysis" / "reports"
+    reports_dir.mkdir(parents=True)
+    write_json(
+        packs / "alpha.json",
+        {
+            "repo_id": "alpha",
+            "path": str(repo),
+            "allowed_hashes": ["abc"],
+            "checklist": load_checklist(),
+        },
+    )
+    write_json(
+        reports_dir / "alpha.json",
+        {
+            "repo_id": "alpha",
+            "purpose": "done",
+            "category": "docs",
+            "headline": "kept",
+            "executive_summary": "alpha already inspected",
+            "checklist": [
+                {
+                    "id": "purpose",
+                    "answer": "lab",
+                    "concern": False,
+                    "evidence_hashes": [],
+                    "evidence_paths": [],
+                }
+            ],
+            "next_inspect": [],
+        },
+    )
+    ran: list[str] = []
+
+    def fake_run(cmd, **_kwargs):
+        prompt = Path(cmd[cmd.index("--prompt-file") + 1])
+        ran.append(prompt.name.removesuffix(".prompt.md"))
+        report = {
+            "purpose": "fresh",
+            "category": "unknown",
+            "headline": "alpha",
+            "executive_summary": "forced rerun",
+            "checklist": [
+                {
+                    "id": "purpose",
+                    "answer": "from pack",
+                    "concern": False,
+                    "evidence_hashes": [],
+                    "evidence_paths": [],
+                }
+            ],
+            "next_inspect": [],
+        }
+        return SimpleNamespace(
+            returncode=0,
+            stdout=json.dumps({"text": json.dumps(report)}),
+            stderr="",
+        )
+
+    reports = cmd_analyze(out, grok_bin="grok", runner=fake_run, force=True)
+    assert ran == ["alpha"]
+    assert reports[0]["executive_summary"] == "forced rerun"
+
+
 def test_analyze_followup_fills_checklist(tmp_path: Path) -> None:
     from repoauditor.auditor.prompt import load_checklist
     from repoauditor.persist import write_json

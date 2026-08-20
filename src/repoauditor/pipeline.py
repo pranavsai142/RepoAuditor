@@ -127,6 +127,7 @@ def cmd_scan(
     model: str | None = None,
     subagents: bool = False,
     since: date | None = None,
+    force: bool = False,
 ) -> dict:
     extract_info = cmd_extract(input_dir, out_dir, since=since)
     cmd_assimilate(out_dir)
@@ -146,6 +147,7 @@ def cmd_scan(
             json_schema=json_schema,
             model=model,
             subagents=subagents,
+            force=force,
         )
         report = _write_report(out_dir, as_of, analysis)
     return {

@@ -96,6 +96,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="allow mapper/investigator child agents (cloud only; fights a local GPU)",
     )
+    p_scan.add_argument(
+        "--force",
+        action="store_true",
+        help="re-run Grok even when a finished report already exists",
+    )
 
     p_pack = sub.add_parser("pack", help="write auditor evidence packs from a scan")
     p_pack.add_argument("scan")
@@ -136,6 +141,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="allow mapper/investigator child agents (cloud only; fights a local GPU)",
     )
+    p_an.add_argument(
+        "--force",
+        action="store_true",
+        help="re-run Grok even when a finished report already exists",
+    )
 
     args = parser.parse_args(argv)
     if args.cmd == "discover":
@@ -174,6 +184,7 @@ def main(argv: list[str] | None = None) -> int:
                     json_schema=args.json_schema,
                     model=args.model,
                     subagents=args.subagents,
+                    force=args.force,
                 ),
                 indent=2,
             )
@@ -193,6 +204,7 @@ def main(argv: list[str] | None = None) -> int:
             json_schema=args.json_schema,
             model=args.model,
             subagents=args.subagents,
+            force=args.force,
         )
         _write_report(out, parse_as_of_arg(args.as_of), reports)
         print(json.dumps({"analyzed": len(reports)}, indent=2))
