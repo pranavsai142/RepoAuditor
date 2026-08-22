@@ -234,9 +234,46 @@ def _merge_scored(base: dict, extra: dict, pack: dict) -> dict:
 
 
 def _is_keeper(report: dict) -> bool:
-    if (report.get("executive_summary") or "").strip():
+    if not isinstance(report, dict):
+        return False
+    summary = report.get("executive_summary")
+    if isinstance(summary, str) and summary.strip():
         return True
-    return any((item.get("answer") or "").strip() for item in report.get("checklist") or [])
+    for item in report.get("checklist") or []:
+        if not isinstance(item, dict):
+            continue
+        answer = item.get("answer")
+        if isinstance(answer, str) and answer.strip():
+            return True
+    return False
+
+
+def unfinished_reports(out_dir: Path) -> list[dict]:
+    """Packs with no finished inspector report (missing, empty, or error stub)."""
+    paths = scan_paths(out_dir)
+    packs_dir = paths["packs"]
+    analysis_dir = paths["analysis"]
+    if not packs_dir.exists():
+        return []
+    rows: list[dict] = []
+    for pack_path in sorted(packs_dir.glob("*.json")):
+        try:
+            pack = read_json(pack_path)
+        except (OSError, json.JSONDecodeError, ValueError):
+            rows.append({"repo_id": pack_path.stem, "reason": "unreadable pack"})
+            continue
+        if not isinstance(pack, dict):
+            rows.append({"repo_id": pack_path.stem, "reason": "unreadable pack"})
+            continue
+        repo_id = pack.get("repo_id") or pack_path.stem
+        dest = analysis_dir / f"{pack_path.stem}.json"
+        if _load_finished_report(dest) is not None:
+            continue
+        reason = "missing"
+        if dest.exists():
+            reason = "empty_or_stub"
+        rows.append({"repo_id": repo_id, "reason": reason})
+    return rows
 
 
 def _load_finished_report(dest: Path) -> dict | None:

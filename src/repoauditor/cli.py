@@ -7,7 +7,7 @@ from pathlib import Path
 
 from repoauditor.auditor.grok_cli import ANALYZE_TIMEOUT, EXPLORE_MAX_TURNS
 from repoauditor.dates import parse_as_of
-from repoauditor.auditor.run import cmd_analyze, cmd_pack
+from repoauditor.auditor.run import cmd_analyze, cmd_pack, unfinished_reports
 from repoauditor.pipeline import (
     cmd_discover,
     cmd_extract,
@@ -17,6 +17,43 @@ from repoauditor.pipeline import (
     parse_as_of_arg,
     _write_report,
 )
+
+
+def _add_headless_flags(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--as-of", default=None)
+    parser.add_argument("--grok-bin", default=None)
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=ANALYZE_TIMEOUT,
+        help="seconds to wait for each grok process (wall clock, not turns; default 86400)",
+    )
+    parser.add_argument(
+        "--max-turns",
+        type=int,
+        default=EXPLORE_MAX_TURNS,
+        help="grok --max-turns per repo (each tool call counts; default 512)",
+    )
+    parser.add_argument(
+        "--json-schema",
+        action="store_true",
+        help="pass grok --json-schema (off by default; large cold prompt)",
+    )
+    parser.add_argument(
+        "--no-json-schema",
+        action="store_true",
+        help="ignored; schema is off unless --json-schema",
+    )
+    parser.add_argument(
+        "--model",
+        default=None,
+        help="grok --model for analyze (use a JSON-capable model if the local one cannot)",
+    )
+    parser.add_argument(
+        "--subagents",
+        action="store_true",
+        help="allow mapper/investigator child agents (cloud only; fights a local GPU)",
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -107,40 +144,7 @@ def main(argv: list[str] | None = None) -> int:
 
     p_an = sub.add_parser("analyze", help="run headless grok on packs (grok --prompt-file)")
     p_an.add_argument("scan")
-    p_an.add_argument("--as-of", default=None)
-    p_an.add_argument("--grok-bin", default=None)
-    p_an.add_argument(
-        "--timeout",
-        type=int,
-        default=ANALYZE_TIMEOUT,
-        help="seconds to wait for each grok process (wall clock, not turns; default 86400)",
-    )
-    p_an.add_argument(
-        "--max-turns",
-        type=int,
-        default=EXPLORE_MAX_TURNS,
-        help="grok --max-turns per repo (each tool call counts; default 512)",
-    )
-    p_an.add_argument(
-        "--json-schema",
-        action="store_true",
-        help="pass grok --json-schema (off by default; large cold prompt)",
-    )
-    p_an.add_argument(
-        "--no-json-schema",
-        action="store_true",
-        help="ignored; schema is off unless --json-schema",
-    )
-    p_an.add_argument(
-        "--model",
-        default=None,
-        help="grok --model for analyze (use a JSON-capable model if the local one cannot)",
-    )
-    p_an.add_argument(
-        "--subagents",
-        action="store_true",
-        help="allow mapper/investigator child agents (cloud only; fights a local GPU)",
-    )
+    _add_headless_flags(p_an)
     p_an.add_argument(
         "--force",
         action="store_true",
@@ -153,6 +157,18 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_rep.add_argument("scan")
     p_rep.add_argument("--as-of", default=None)
+
+    p_retry = sub.add_parser(
+        "retry",
+        help="re-run Grok only on repos with no finished inspector report",
+    )
+    p_retry.add_argument("scan")
+    _add_headless_flags(p_retry)
+    p_retry.add_argument(
+        "--list",
+        action="store_true",
+        help="print unfinished repo ids and exit (no Grok)",
+    )
 
     args = parser.parse_args(argv)
     if args.cmd == "discover":
@@ -220,6 +236,37 @@ def main(argv: list[str] | None = None) -> int:
         out = Path(args.scan)
         path = _write_report(out, parse_as_of_arg(args.as_of), None)
         print(json.dumps({"report": str(path)}, indent=2))
+        return 0
+    if args.cmd == "retry":
+        out = Path(args.scan)
+        pending = unfinished_reports(out)
+        if args.list:
+            print(json.dumps({"unfinished": pending, "count": len(pending)}, indent=2))
+            return 0
+        print(f"retry {len(pending)} unfinished", file=sys.stderr, flush=True)
+        for row in pending:
+            print(f"retry {row['repo_id']} ({row['reason']})", file=sys.stderr, flush=True)
+        reports = cmd_analyze(
+            out,
+            grok_bin=args.grok_bin,
+            timeout=args.timeout,
+            max_turns=args.max_turns,
+            json_schema=args.json_schema,
+            model=args.model,
+            subagents=args.subagents,
+        )
+        path = _write_report(out, parse_as_of_arg(args.as_of), reports)
+        leftover = unfinished_reports(out)
+        print(
+            json.dumps(
+                {
+                    "retried": len(pending),
+                    "still_unfinished": [row["repo_id"] for row in leftover],
+                    "report": str(path),
+                },
+                indent=2,
+            )
+        )
         return 0
     return 2
 

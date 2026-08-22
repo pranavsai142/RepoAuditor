@@ -8,7 +8,12 @@ from types import SimpleNamespace
 from repoauditor.auditor.grok_cli import build_cmd, parse_headless_json
 from repoauditor.auditor.prompt import SYSTEM_PROMPT, load_checklist, scorer_followup_prompt, user_prompt
 from repoauditor.auditor.pack import brief_for_grok
-from repoauditor.auditor.run import _keep_prior_report, cmd_analyze, cmd_pack
+from repoauditor.auditor.run import (
+    _keep_prior_report,
+    cmd_analyze,
+    cmd_pack,
+    unfinished_reports,
+)
 from repoauditor.auditor.validate import validate_report
 from repoauditor.pipeline import cmd_scan
 from tests.fixtures import spec
@@ -331,6 +336,67 @@ def test_keep_prior_report_on_failed_parse(tmp_path: Path) -> None:
     assert kept["headline"] == "kept"
     empty = tmp_path / "missing.json"
     assert _keep_prior_report(empty, stub)["analyze_error"]
+
+
+def test_unfinished_reports_lists_stubs_and_missing_not_keepers(tmp_path: Path) -> None:
+    from repoauditor.persist import write_json
+
+    out = tmp_path / "scan"
+    packs = out / "analysis" / "packs"
+    reports_dir = out / "analysis" / "reports"
+    packs.mkdir(parents=True)
+    reports_dir.mkdir(parents=True)
+    for repo_id in ("alpha", "bravo", "charlie", "delta"):
+        write_json(
+            packs / f"{repo_id}.json",
+            {"repo_id": repo_id, "path": str(tmp_path / "repo")},
+        )
+    write_json(
+        reports_dir / "alpha.json",
+        {
+            "repo_id": "alpha",
+            "executive_summary": "done",
+            "checklist": [{"id": "purpose", "answer": "lab"}],
+        },
+    )
+    write_json(
+        reports_dir / "bravo.json",
+        {
+            "repo_id": "bravo",
+            "executive_summary": "",
+            "checklist": [],
+            "analyze_error": "timed out",
+        },
+    )
+    write_json(reports_dir / "charlie.json", {})
+    rows = unfinished_reports(out)
+    assert [row["repo_id"] for row in rows] == ["bravo", "charlie", "delta"]
+    reasons = {row["repo_id"]: row["reason"] for row in rows}
+    assert reasons["bravo"] == "empty_or_stub"
+    assert reasons["charlie"] == "empty_or_stub"
+    assert reasons["delta"] == "missing"
+
+
+def test_retry_list_cli_prints_unfinished(tmp_path: Path, capsys) -> None:
+    from repoauditor.cli import main
+    from repoauditor.persist import write_json
+
+    out = tmp_path / "scan"
+    packs = out / "analysis" / "packs"
+    reports = out / "analysis" / "reports"
+    packs.mkdir(parents=True)
+    reports.mkdir(parents=True)
+    write_json(packs / "alpha.json", {"repo_id": "alpha", "path": str(tmp_path)})
+    write_json(packs / "bravo.json", {"repo_id": "bravo", "path": str(tmp_path)})
+    write_json(
+        reports / "alpha.json",
+        {"repo_id": "alpha", "executive_summary": "done", "checklist": []},
+    )
+    assert main(["retry", str(out), "--list"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["count"] == 1
+    assert payload["unfinished"][0]["repo_id"] == "bravo"
+    assert payload["unfinished"][0]["reason"] == "missing"
 
 
 def test_analyze_skips_keeper_reports_and_retries_stubs(tmp_path: Path) -> None:
