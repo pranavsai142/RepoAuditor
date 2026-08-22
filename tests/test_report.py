@@ -44,6 +44,10 @@ def test_html_contains_caveat_and_hashes(department: Path, tmp_path: Path, as_of
     assert "heads.find(" not in js
     assert "Reset columns" in html
     assert "col-reset" in js
+    assert "table-filter" in js
+    assert "startsWith" in js
+    css = (out / "report" / "assets" / "style.css").read_text(encoding="utf-8")
+    assert "table-filter" in css
     repo_html = (out / "report" / "repos" / f"{slug(repos[0]['repo_id'])}.html").read_text()
     assert "heatmap-wrap" in repo_html
     assert ">unique paths<" in repo_html

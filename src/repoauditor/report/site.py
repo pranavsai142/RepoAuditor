@@ -91,6 +91,7 @@ table.grid th.col-hidden, table.grid td.col-hidden { display:none; }
 .col-bar { display:flex; flex-wrap:wrap; gap:.4rem; align-items:center; margin:.4rem 0 .6rem; font-size:.82rem; }
 .col-bar label { display:inline-flex; gap:.25rem; align-items:center; background:#fff; border:1px solid var(--line); padding:.15rem .4rem; }
 .col-reset { border:1px solid var(--line); background:#fff; padding:.2rem .55rem; cursor:pointer; font:inherit; }
+.table-filter { font:inherit; padding:.2rem .55rem; border:1px solid var(--line); min-width:12rem; }
 .table-wrap { overflow-x:auto; max-width:100%; }
 .prose { white-space:pre-wrap; }
 .check { margin:.8rem 0; padding:.7rem; background:#fff; border:1px solid var(--line); }
@@ -120,6 +121,21 @@ function applyCols(table) {
 function cellVal(row, col) {
   const td = [...row.cells].find((c) => c.dataset.col === col);
   return td ? (td.dataset.sort ?? td.innerText) : "";
+}
+
+function rowPrefixText(row) {
+  const cells = [...row.cells];
+  const preferred = cells.find((c) => c.dataset.col === "repo" || c.dataset.col === "name");
+  const cell = preferred || cells.find((c) => c.dataset.type === "str") || cells[0];
+  return (cell ? (cell.dataset.sort || cell.innerText) : "").trim();
+}
+
+function filterTable(table, query) {
+  const prefix = query.trim().toLowerCase();
+  [...table.tBodies[0].rows].forEach((row) => {
+    const text = rowPrefixText(row).toLowerCase();
+    row.hidden = Boolean(prefix) && !text.startsWith(prefix);
+  });
 }
 
 document.querySelectorAll("table.sortable").forEach((table) => {
@@ -221,6 +237,14 @@ document.querySelectorAll("table.sortable").forEach((table) => {
       });
     }
   }
+  const input = document.createElement("input");
+  input.type = "search";
+  input.className = "table-filter";
+  input.placeholder = "Prefix filter";
+  input.setAttribute("aria-label", "Filter rows by prefix");
+  input.addEventListener("input", () => filterTable(table, input.value));
+  if (bar && bar.classList.contains("col-bar")) bar.appendChild(input);
+  else table.parentElement.insertBefore(input, table);
 });
 
 (function () {
