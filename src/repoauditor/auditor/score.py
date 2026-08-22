@@ -32,12 +32,26 @@ def rubric_label(cid: str) -> str:
     return cid.replace("_", " ")
 
 
+def _as_text(value: object) -> str:
+    if value is None or isinstance(value, bool):
+        return ""
+    if isinstance(value, str):
+        return value
+    return str(value)
+
+
+def checklist_items(report: dict | None) -> list[dict]:
+    if not isinstance(report, dict):
+        return []
+    return [row for row in (report.get("checklist") or []) if isinstance(row, dict)]
+
+
 def item_status(item: dict | None) -> str:
-    if not item:
+    if not isinstance(item, dict) or not item:
         return "unknown"
     if item.get("concern"):
         return "concern"
-    answer = (item.get("answer") or "").strip().lower()
+    answer = _as_text(item.get("answer")).strip().lower()
     if not answer or "cannot tell" in answer:
         return "unknown"
     return "ok"
@@ -45,7 +59,7 @@ def item_status(item: dict | None) -> str:
 
 def item_score(item: dict | None) -> int | None:
     """+1 ok, 0 cannot tell, -1 concern. None if the item is absent (no analyze)."""
-    if not item:
+    if not isinstance(item, dict) or not item:
         return None
     status = item_status(item)
     if status == "ok":
@@ -56,9 +70,7 @@ def item_score(item: dict | None) -> int | None:
 
 
 def checklist_by_id(report: dict | None) -> dict[str, dict]:
-    if not report:
-        return {}
-    return {row.get("id"): row for row in report.get("checklist") or [] if row.get("id")}
+    return {row["id"]: row for row in checklist_items(report) if row.get("id")}
 
 
 def repo_tag_scores(report: dict | None) -> dict[str, int | None]:

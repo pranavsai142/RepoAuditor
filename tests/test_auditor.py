@@ -91,6 +91,28 @@ def test_validate_strips_invented_hashes() -> None:
     assert "deadbeef" in out["stripped_unknown_hashes"]
 
 
+def test_validate_coerces_bool_answer() -> None:
+    pack = {"repo_id": "x", "allowed_hashes": []}
+    out = validate_report(
+        {
+            "purpose": "maybe",
+            "category": "husk",
+            "checklist": [
+                {
+                    "id": "purpose",
+                    "answer": True,
+                    "concern": False,
+                    "evidence_hashes": [],
+                    "evidence_paths": [],
+                }
+            ],
+            "next_inspect": [],
+        },
+        pack,
+    )
+    assert out["checklist"][0]["answer"] == ""
+
+
 def test_headless_grok_command_shape(tmp_path: Path, monkeypatch) -> None:
     out = tmp_path / "scan2"
     prompt = out / "analysis" / "reports" / "repo.prompt.md"

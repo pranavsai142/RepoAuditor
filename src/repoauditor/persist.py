@@ -51,3 +51,37 @@ def scan_paths(out_dir: Path) -> dict[str, Path]:
         "executive": out_dir / "analysis" / "executive.json",
         "report": out_dir / "report" / "index.html",
     }
+
+
+def load_analysis_reports(out_dir: Path) -> list[dict]:
+    """Per-repo report JSON is the source of truth after a crash; index is fallback."""
+    paths = scan_paths(out_dir)
+    reports_dir = paths["analysis"]
+    loaded: list[dict] = []
+    seen: set[str] = set()
+    if reports_dir.exists():
+        for path in sorted(reports_dir.glob("*.json")):
+            if path.name.endswith(".brief.json"):
+                continue
+            try:
+                row = read_json(path)
+            except (OSError, json.JSONDecodeError, ValueError):
+                continue
+            if not isinstance(row, dict):
+                continue
+            repo_id = row.get("repo_id")
+            if not repo_id or repo_id in seen:
+                continue
+            seen.add(str(repo_id))
+            loaded.append(row)
+    if loaded:
+        return loaded
+    if not paths["analysis_index"].exists():
+        return []
+    try:
+        rows = read_json(paths["analysis_index"])
+    except (OSError, json.JSONDecodeError, ValueError):
+        return []
+    if not isinstance(rows, list):
+        return []
+    return [row for row in rows if isinstance(row, dict) and row.get("repo_id")]

@@ -147,6 +147,13 @@ def main(argv: list[str] | None = None) -> int:
         help="re-run Grok even when a finished report already exists",
     )
 
+    p_rep = sub.add_parser(
+        "report",
+        help="rebuild HTML from existing analyze JSON (no Grok)",
+    )
+    p_rep.add_argument("scan")
+    p_rep.add_argument("--as-of", default=None)
+
     args = parser.parse_args(argv)
     if args.cmd == "discover":
         print(json.dumps(cmd_discover(Path(args.input_dir)), indent=2))
@@ -208,6 +215,11 @@ def main(argv: list[str] | None = None) -> int:
         )
         _write_report(out, parse_as_of_arg(args.as_of), reports)
         print(json.dumps({"analyzed": len(reports)}, indent=2))
+        return 0
+    if args.cmd == "report":
+        out = Path(args.scan)
+        path = _write_report(out, parse_as_of_arg(args.as_of), None)
+        print(json.dumps({"report": str(path)}, indent=2))
         return 0
     return 2
 

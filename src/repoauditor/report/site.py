@@ -11,6 +11,7 @@ from repoauditor.auditor.schema import CHECKLIST_IDS
 from repoauditor.auditor.score import (
     SCORED_IDS,
     TAGS,
+    checklist_items,
     inspector_score,
     item_status,
     repo_tag_scores,
@@ -443,7 +444,7 @@ def _tag_strip(report: dict | None) -> str:
 
 
 def _scorecard(report: dict | None) -> str:
-    by_id = {item.get("id"): item for item in (report or {}).get("checklist") or []}
+    by_id = {item.get("id"): item for item in checklist_items(report) if item.get("id")}
     total = inspector_score(report)
     if report and report.get("analyze_error"):
         heading = (
@@ -796,7 +797,7 @@ def _repo_table(
         report = analysis_map.get(repo["repo_id"])
         concerns = 0
         if report:
-            concerns = sum(1 for item in report.get("checklist") or [] if item.get("concern"))
+            concerns = sum(1 for item in checklist_items(report) if item.get("concern"))
         tag_scores = repo_tag_scores(report)
         score = inspector_score(report)
         href = f"repos/{slugs[repo['repo_id']]}.html"
@@ -1000,10 +1001,10 @@ def _repo_page(
         )
     finding_html = [_finding_card(finding) for finding in findings]
     checks = []
-    for item in (report or {}).get("checklist") or []:
+    for item in checklist_items(report):
         cls = "check concern" if item.get("concern") else "check"
-        hashes = ", ".join(item.get("evidence_hashes") or [])
-        paths = ", ".join(item.get("evidence_paths") or [])
+        hashes = ", ".join(h for h in (item.get("evidence_hashes") or []) if isinstance(h, str))
+        paths = ", ".join(p for p in (item.get("evidence_paths") or []) if isinstance(p, str))
         checks.append(
             f'<article class="{cls}" id="check-{esc(item.get("id"))}">'
             f"<h3>{esc(item.get('id'))}</h3>"
@@ -1014,6 +1015,7 @@ def _repo_page(
     inspect = "".join(
         f"<li><code>{esc(item.get('hash'))}</code> — {esc(item.get('why'))}</li>"
         for item in (report or {}).get("next_inspect") or []
+        if isinstance(item, dict)
     )
     purpose = ""
     exec_html = ""
@@ -1025,7 +1027,7 @@ def _repo_page(
                 f"<p><strong>{esc(report.get('headline'))}</strong></p>"
                 f'<div class="prose">{esc(report.get("executive_summary"))}</div></section>'
             )
-    concerns = sum(1 for item in (report or {}).get("checklist") or [] if item.get("concern"))
+    concerns = sum(1 for item in checklist_items(report) if item.get("concern"))
     score = inspector_score(report)
     tag_scores = repo_tag_scores(report)
     git_card = _kv_card(

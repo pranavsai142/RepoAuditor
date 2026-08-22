@@ -14,7 +14,14 @@ from repoauditor.discover import discover
 from repoauditor.extract import commits_as_dicts, extract_meta, extract_repo
 from repoauditor.identity import apply_bots_and_keys, build_identities
 from repoauditor.patterns import detect_all
-from repoauditor.persist import read_json, read_jsonl, scan_paths, write_json, write_jsonl
+from repoauditor.persist import (
+    load_analysis_reports,
+    read_json,
+    read_jsonl,
+    scan_paths,
+    write_json,
+    write_jsonl,
+)
 from repoauditor.rank import rank as rank_tables
 from repoauditor.report import write_report
 
@@ -95,8 +102,8 @@ def _write_report(out_dir: Path, as_of: date, analysis: list[dict] | None = None
     rankings = read_json(paths["rankings"]) if paths["rankings"].exists() else {}
     findings = read_json(paths["findings"]) if paths["findings"].exists() else []
     meta = read_json(paths["extract_meta"])
-    if analysis is None and paths["analysis_index"].exists():
-        analysis = read_json(paths["analysis_index"])
+    if analysis is None:
+        analysis = load_analysis_reports(out_dir)
     assistance = read_json(paths["assistance"]) if paths["assistance"].exists() else {}
     executive = read_json(paths["executive"]) if paths["executive"].exists() else None
     return write_report(

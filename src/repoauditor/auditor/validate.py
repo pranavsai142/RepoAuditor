@@ -35,10 +35,15 @@ def validate_report(report: dict, pack: dict) -> dict:
         if cid not in _CHECKLIST_IDS:
             continue
         kept_h = [h for h in _str_list(item.get("evidence_hashes")) if keep_hash(h)]
+        answer = item.get("answer")
+        if isinstance(answer, bool) or answer is None:
+            answer = ""
+        elif not isinstance(answer, str):
+            answer = str(answer)
         checklist.append(
             {
                 "id": cid,
-                "answer": item.get("answer") or "",
+                "answer": answer,
                 "concern": bool(item.get("concern")),
                 "evidence_hashes": kept_h,
                 "evidence_paths": _str_list(item.get("evidence_paths")),
